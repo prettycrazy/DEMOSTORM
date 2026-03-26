@@ -1,0 +1,253 @@
+{
+  "updated_at": "2026-03-25T19:53:08+0800",
+  "records": [
+    {
+      "id": "recveRwIwXCcdg",
+      "fields": {
+        "DEMO名称": "组合柜Agent",
+        "DEMO的思路": "1. 多模态意图理解\n2. 模型库RAG检索\n3. AI调参\n4. 验证-修改 循环",
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "table_id": "tblvIoMdw5nslGsy",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "解决的问题": "1. 企业建库人员快速创建、更新组合库\n2. 终端用户无需学习模型库、学习工具操作，快速创建所需要的组合模型",
+        "负责人": [
+          {
+            "email": "shili@qunhemail.com",
+            "en_name": "拾厘",
+            "id": "ou_8161ab85f8a0e4e33276ecba744c50fa",
+            "name": "拾厘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recveS2cEWbEAr",
+      "fields": {
+        "DEMO名称": "内空设计agent",
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "table_id": "tblvIoMdw5nslGsy",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "负责人": [
+          {
+            "email": "lawen@qunhemail.com",
+            "en_name": "拉文",
+            "id": "ou_c8ff232131b473c64c076c710715f5f4",
+            "name": "拉文"
+          }
+        ],
+        "预期可demo时间": 1775750400000
+      }
+    },
+    {
+      "id": "recveRwIwXMb54",
+      "fields": {
+        "DEMO名称": "模型动画Agent",
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "table_id": "tblvIoMdw5nslGsy",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "负责人": [
+          {
+            "email": "qiaoye@qunhemail.com",
+            "en_name": "桥也",
+            "id": "ou_9467c5a8e3069b42bd9d9c1efa518a9d",
+            "name": "桥也"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recveRwIwXkJ4O",
+      "fields": {
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "table_id": "tblvIoMdw5nslGsy",
+            "text_arr": [],
+            "type": "text"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recveRwIwXmTPc",
+      "fields": {
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "table_id": "tblvIoMdw5nslGsy",
+            "text_arr": [],
+            "type": "text"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recveRwIwXc7SL",
+      "fields": {
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "table_id": "tblvIoMdw5nslGsy",
+            "text_arr": [],
+            "type": "text"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recveRQD7KK47I",
+      "fields": {
+        "DEMO名称": "模型库检索",
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "record_ids": [
+              "recveRwIwXCcdg"
+            ],
+            "table_id": "tblvIoMdw5nslGsy",
+            "text": "组合柜Agent",
+            "text_arr": [
+              "组合柜Agent"
+            ],
+            "type": "text"
+          }
+        ],
+        "负责人": [
+          {
+            "email": "lanhu@qunhemail.com",
+            "en_name": "蓝狐",
+            "id": "ou_ad034fbe024ba28bb458688b00ecc66a",
+            "name": "蓝狐"
+          }
+        ]
+      }
+    },
+    {
+      "id": "recveS25G5rQUk",
+      "fields": {
+        "DEMO名称": "衣柜空间cad识别和还原",
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "record_ids": [
+              "recveRwIwXCcdg"
+            ],
+            "table_id": "tblvIoMdw5nslGsy",
+            "text": "组合柜Agent",
+            "text_arr": [
+              "组合柜Agent"
+            ],
+            "type": "text"
+          }
+        ],
+        "负责人": [
+          {
+            "email": "lawen@qunhemail.com",
+            "en_name": "拉文",
+            "id": "ou_c8ff232131b473c64c076c710715f5f4",
+            "name": "拉文"
+          }
+        ],
+        "预期可demo时间": 1774540800000
+      }
+    },
+    {
+      "id": "recveS29l0YWYI",
+      "fields": {
+        "DEMO名称": "衣柜布局模板+模型匹配",
+        "关联diea": [
+          {
+            "table_id": "tblPk1wR2xYSztdL",
+            "text_arr": [],
+            "type": "text"
+          }
+        ],
+        "父记录 2": [
+          {
+            "record_ids": [
+              "recveRwIwXCcdg"
+            ],
+            "table_id": "tblvIoMdw5nslGsy",
+            "text": "组合柜Agent",
+            "text_arr": [
+              "组合柜Agent"
+            ],
+            "type": "text"
+          }
+        ],
+        "负责人": [
+          {
+            "email": "lawen@qunhemail.com",
+            "en_name": "拉文",
+            "id": "ou_c8ff232131b473c64c076c710715f5f4",
+            "name": "拉文"
+          }
+        ],
+        "预期可demo时间": 1775145600000
+      }
+    }
+  ]
+}

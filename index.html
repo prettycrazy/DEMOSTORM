@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Innovation Workboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-veil"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-name">Innovation Workboard</div>
+        <div class="brand-sub">Product Innovation / Projects + Ideas</div>
+      </div>
+    </div>
+    <div class="top-meta">
+      <div class="meta-block">
+        <div class="meta-label">Data Pulse</div>
+        <div class="meta-value" id="lastSync">--</div>
+      </div>
+      <div class="meta-block">
+        <div class="meta-label">Today</div>
+        <div class="meta-value" id="today">--</div>
+      </div>
+      <div class="guest-toggle">
+        <div class="meta-label">Guest Mode</div>
+        <button class="ghost toggle" id="guestToggleBtn" type="button">Guest Off</button>
+      </div>
+      <button class="ghost" id="refreshBtn">Refresh</button>
+    </div>
+  </header>
+
+  <main class="board">
+    <section class="hero">
+      <div class="hero-left">
+        <div class="hero-kicker">Innovation Frontier</div>
+        <h1>让创意与执行同屏进化</h1>
+        <p>
+          这是你的创新工作看板：项目推进、想法收集、价值评估与关键协作一屏汇聚。
+        </p>
+        <div class="hero-actions">
+          <button class="primary">Create Momentum</button>
+          <button class="ghost">View All Records</button>
+        </div>
+      </div>
+      <div class="hero-right">
+        <div class="stat">
+          <div class="stat-label">Active Projects</div>
+          <div class="stat-value" id="projectCount">--</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">New Ideas</div>
+          <div class="stat-value" id="ideaCount">--</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Focus Themes</div>
+          <div class="stat-value" id="themeCount">--</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Momentum Index</div>
+          <div class="stat-value" id="momentum">--</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Projects In Motion</h2>
+          <div class="section-sub">当前进行中的创新项目，按影响力与执行力排序。</div>
+        </div>
+        <div class="pill">Live</div>
+      </div>
+      <div class="list" id="projectsList"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>Idea Intake</h2>
+          <div class="section-sub">来自团队的最新想法与探索方向。</div>
+        </div>
+        <div class="pill" id="authBadge">Open</div>
+      </div>
+      <div class="auth-banner" id="authBanner">
+        <div class="auth-text">提交前需要先用飞书授权</div>
+        <button class="ghost" id="loginBtn">Feishu Login</button>
+      </div>
+      <form class="idea-form" id="ideaForm">
+        <div class="form-row">
+          <label>IDEA标题</label>
+          <input type="text" id="ideaTitle" placeholder="输入清晰的创意标题" required />
+        </div>
+        <div class="form-row">
+          <label>解决的问题</label>
+          <textarea id="ideaProblem" placeholder="要解决的痛点与价值"></textarea>
+        </div>
+        <div class="form-row">
+          <label>Demo思路</label>
+          <textarea id="ideaPlan" placeholder="关键路径或实现思路"></textarea>
+        </div>
+        <div class="form-row">
+          <label>填写人 OpenID（可选）</label>
+          <input type="text" id="ideaOwner" placeholder="ou_xxx（不填则留空）" />
+        </div>
+        <div class="form-actions">
+          <button class="primary" type="submit">Submit Idea</button>
+          <span class="form-hint" id="ideaStatus">Ready</span>
+        </div>
+      </form>
+      <div class="list" id="ideasList"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>Feishu Bitable → Innovation Board</div>
+    <div class="footer-right">Prototype UI · Auto-refresh ready</div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
