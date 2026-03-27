@@ -255,6 +255,60 @@ def create_idea_as_app(payload):
     return res
 
 
+LIKE_FIELD_CANDIDATES = ["点赞", "点赞数", "Likes", "likes", "Votes", "votes"]
+
+
+def extract_like_count(fields):
+    for key in [os.getenv("FEISHU_IDEAS_LIKES_FIELD"), *LIKE_FIELD_CANDIDATES]:
+        if not key:
+            continue
+        value = fields.get(key)
+        try:
+            return max(0, int(round(float(value))))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def resolve_like_field_name(fields):
+    configured = os.getenv("FEISHU_IDEAS_LIKES_FIELD")
+    if configured:
+        return configured
+    for key in LIKE_FIELD_CANDIDATES:
+        if key in fields:
+            return key
+    return "点赞"
+
+
+def get_idea_record(record_id, token):
+    app_token = get_env("FEISHU_BITABLE_APP_TOKEN")
+    table_id = get_env("FEISHU_IDEAS_TABLE_ID")
+    url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}"
+    res = http_request(url, method="GET", headers={"Authorization": f"Bearer {token}"})
+    if res.get("code") != 0:
+        raise RuntimeError(f"Fetch record error: {res}")
+    return (res.get("data") or {}).get("record") or {}
+
+
+def update_idea_fields(record_id, fields, token):
+    app_token = get_env("FEISHU_BITABLE_APP_TOKEN")
+    table_id = get_env("FEISHU_IDEAS_TABLE_ID")
+    url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}"
+    res = http_request(url, method="PUT", headers={"Authorization": f"Bearer {token}"}, body={"fields": fields})
+    if res.get("code") != 0:
+        raise RuntimeError(f"Update record error: {res}")
+    return res
+
+
+def like_idea_with_token(record_id, token):
+    record = get_idea_record(record_id, token)
+    fields = record.get("fields") or {}
+    like_field = resolve_like_field_name(fields)
+    next_likes = extract_like_count(fields) + 1
+    update_idea_fields(record_id, {like_field: next_likes}, token)
+    return next_likes
+
+
 def guest_mode_enabled():
     if GUEST_MODE_OVERRIDE is not None:
         return bool(GUEST_MODE_OVERRIDE)
@@ -332,7 +386,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path.startswith("/oauth/callback"):
+        if self.path.startswith("/oauth/callback") or self.path.startswith("/api/oauth/callback"):
             parsed = urllib.parse.urlparse(self.path)
             query = urllib.parse.parse_qs(parsed.query)
             self.do_GET_auth_callback(query)
@@ -340,7 +394,11 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/config"):
             guest_enabled = guest_mode_enabled()
-            json_response(self, 200, {"guest_mode": guest_enabled})
+            json_response(self, 200, {
+                "guest_mode": guest_enabled,
+                "projects_table_url": os.getenv("FEISHU_PROJECTS_TABLE_URL", "https://lq9n5lvfn2i.feishu.cn/wiki/CZBWwReNHic9m4kUV95cWKJwnRe?table=tblvIoMdw5nslGsy&view=vewRk0ObQk"),
+                "ideas_table_url": os.getenv("FEISHU_IDEAS_TABLE_URL", "https://lq9n5lvfn2i.feishu.cn/wiki/CZBWwReNHic9m4kUV95cWKJwnRe?table=tblPk1wR2xYSztdL&view=vewCeUkPfz")
+            })
             return
 
         if self.path.startswith("/api/guest"):
@@ -361,7 +419,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/login"):
-            redirect_uri = os.getenv("FEISHU_REDIRECT_URI", "http://localhost:8002/oauth/callback")
+            redirect_uri = os.getenv("FEISHU_REDIRECT_URI", "http://localhost:8004/api/oauth/callback")
             scope = os.getenv("FEISHU_OAUTH_SCOPE", "auth:user.id:read bitable:app base:record:create base:record:read")
             state = secrets.token_hex(8)
             auth_url = build_auth_url(redirect_uri, scope, state)
@@ -415,18 +473,73 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
             try:
                 user_auth = self.current_user()
                 payload = json.loads(body.decode("utf-8"))
+                submit_mode = str(payload.get("submit_mode", "")).strip().lower()
+                guest_enabled = guest_mode_enabled()
+
+                if payload.get("action") == "like":
+                    record_id = str(payload.get("id", "")).strip()
+                    if not record_id:
+                        json_response(self, 400, {"message": "缺少 idea id"})
+                        return
+
+                    if submit_mode == "guest":
+                        if not guest_enabled:
+                            json_response(self, 400, {"message": "当前未开启游客提交"})
+                            return
+                        next_likes = like_idea_with_token(record_id, get_tenant_access_token())
+                    elif submit_mode == "auth":
+                        if not user_auth:
+                            json_response(self, 401, {"message": "请先授权飞书账号"})
+                            return
+                        token_value = get_user_access_token(user_auth)
+                        if isinstance(token_value, tuple):
+                            token, refreshed = token_value
+                            user_auth.update(refreshed)
+                            self.save_user_auth(user_auth)
+                        else:
+                            token = token_value
+                        next_likes = like_idea_with_token(record_id, token)
+                    elif user_auth:
+                        token_value = get_user_access_token(user_auth)
+                        if isinstance(token_value, tuple):
+                            token, refreshed = token_value
+                            user_auth.update(refreshed)
+                            self.save_user_auth(user_auth)
+                        else:
+                            token = token_value
+                        next_likes = like_idea_with_token(record_id, token)
+                    else:
+                        if not guest_enabled:
+                            json_response(self, 401, {"message": "需要先登录授权"})
+                            return
+                        next_likes = like_idea_with_token(record_id, get_tenant_access_token())
+                    json_response(self, 200, {"message": "ok", "likes": next_likes})
+                    return
+
                 if not payload.get("title"):
                     json_response(self, 400, {"message": "IDEA标题必填"})
                     return
-                if user_auth:
+
+                if submit_mode == "guest":
+                    if not guest_enabled:
+                        json_response(self, 400, {"message": "当前未开启游客提交"})
+                        return
+                    create_idea_as_app(payload)
+                elif submit_mode == "auth":
+                    if not user_auth:
+                        json_response(self, 401, {"message": "请先授权飞书账号"})
+                        return
                     create_idea(payload, user_auth)
                     self.save_user_auth(user_auth)
                 else:
-                    guest_enabled = guest_mode_enabled()
-                    if not guest_enabled:
-                        json_response(self, 401, {"message": "需要先登录授权"})
-                        return
-                    create_idea_as_app(payload)
+                    if user_auth:
+                        create_idea(payload, user_auth)
+                        self.save_user_auth(user_auth)
+                    else:
+                        if not guest_enabled:
+                            json_response(self, 401, {"message": "需要先登录授权"})
+                            return
+                        create_idea_as_app(payload)
                 json_response(self, 200, {"message": "ok"})
             except Exception as e:
                 print("Error creating idea:", e)
@@ -451,7 +564,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
             save_user_store(store)
 
     def do_GET_auth_callback(self, query):
-        redirect_uri = os.getenv("FEISHU_REDIRECT_URI", "http://localhost:8002/oauth/callback")
+        redirect_uri = os.getenv("FEISHU_REDIRECT_URI", "http://localhost:8004/api/oauth/callback")
         code = query.get("code", [None])[0]
         if not code:
             json_response(self, 400, {"message": "Missing code"})
