@@ -256,6 +256,52 @@ def create_idea_as_app(payload):
 
 
 LIKE_FIELD_CANDIDATES = ["点赞", "点赞数", "Likes", "likes", "Votes", "votes"]
+COMMENT_TABLE_ID = os.getenv("FEISHU_COMMENTS_TABLE_ID", "tblc9a0rQHutXXHu")
+COMMENT_FIELD_ALIASES = {
+    "content": ["评论内容", "内容", "Comment", "评论"],
+    "target_type": ["目标类型", "Target Type", "type"],
+    "target_record_id": ["目标记录ID", "目标记录Id", "Target Record ID", "record_id"],
+    "parent_id": ["父评论ID", "Parent Comment ID", "parent_id"],
+    "likes": ["点赞数", "点赞", "Likes", "likes"],
+    "status": ["状态", "Status", "status"],
+    "creator": ["创建人", "作者名和OpenID"],
+    "created_at": ["创建时间", "Created Time", "created_at"],
+}
+
+
+def pick_alias(fields, aliases):
+    for key in aliases:
+        if key in fields and fields[key] is not None:
+            return fields[key]
+    return ""
+
+
+def normalize_creator_name(value):
+    if isinstance(value, list) and value:
+        first = value[0] or {}
+        if isinstance(first, dict):
+            return first.get("name") or first.get("en_name") or first.get("id") or "Unknown"
+        return str(first)
+    if isinstance(value, dict):
+        return value.get("name") or value.get("en_name") or value.get("id") or "Unknown"
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "Unknown"
+
+
+def normalize_comment_record(record):
+    fields = record.get("fields") or {}
+    return {
+        "id": record.get("id") or record.get("record_id") or "",
+        "content": str(pick_alias(fields, COMMENT_FIELD_ALIASES["content"]) or "").strip(),
+        "target_type": str(pick_alias(fields, COMMENT_FIELD_ALIASES["target_type"]) or "").strip().lower(),
+        "target_record_id": str(pick_alias(fields, COMMENT_FIELD_ALIASES["target_record_id"]) or "").strip(),
+        "parent_id": str(pick_alias(fields, COMMENT_FIELD_ALIASES["parent_id"]) or "").strip(),
+        "likes": extract_like_count({"点赞数": pick_alias(fields, COMMENT_FIELD_ALIASES["likes"])}),
+        "status": str(pick_alias(fields, COMMENT_FIELD_ALIASES["status"]) or "active").strip().lower(),
+        "author_name": normalize_creator_name(pick_alias(fields, COMMENT_FIELD_ALIASES["creator"])),
+        "created_at": pick_alias(fields, COMMENT_FIELD_ALIASES["created_at"]) or "",
+    }
 
 
 def extract_like_count(fields):
@@ -307,6 +353,73 @@ def like_idea_with_token(record_id, token):
     next_likes = extract_like_count(fields) + 1
     update_idea_fields(record_id, {like_field: next_likes}, token)
     return next_likes
+
+
+def get_comments_table_id():
+    return os.getenv("FEISHU_COMMENTS_TABLE_ID", COMMENT_TABLE_ID)
+
+
+def get_record(table_id, record_id, token):
+    app_token = get_env("FEISHU_BITABLE_APP_TOKEN")
+    url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}"
+    res = http_request(url, method="GET", headers={"Authorization": f"Bearer {token}"})
+    if res.get("code") != 0:
+        raise RuntimeError(f"Fetch record error: {res}")
+    return (res.get("data") or {}).get("record") or {}
+
+
+def update_record_fields(table_id, record_id, fields, token):
+    app_token = get_env("FEISHU_BITABLE_APP_TOKEN")
+    url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}"
+    res = http_request(url, method="PUT", headers={"Authorization": f"Bearer {token}"}, body={"fields": fields})
+    if res.get("code") != 0:
+        raise RuntimeError(f"Update record error: {res}")
+    return res
+
+
+def create_record(table_id, fields, token):
+    app_token = get_env("FEISHU_BITABLE_APP_TOKEN")
+    url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records"
+    res = http_request(url, method="POST", headers={"Authorization": f"Bearer {token}"}, body={"fields": fields})
+    if res.get("code") != 0:
+        raise RuntimeError(f"Create record error: {res}")
+    record = (res.get("data") or {}).get("record") or {}
+    return {
+        "id": record.get("record_id") or "",
+        "fields": record.get("fields") or fields
+    }
+
+
+def fetch_comments():
+    return [normalize_comment_record(item) for item in fetch_records(get_comments_table_id())]
+
+
+def like_comment_with_token(record_id, token):
+    record = get_record(get_comments_table_id(), record_id, token)
+    fields = record.get("fields") or {}
+    like_field = "点赞数"
+    for key in COMMENT_FIELD_ALIASES["likes"]:
+        if key in fields:
+            like_field = key
+            break
+    next_likes = extract_like_count({"点赞数": pick_alias(fields, COMMENT_FIELD_ALIASES["likes"])}) + 1
+    update_record_fields(get_comments_table_id(), record_id, {like_field: next_likes}, token)
+    return next_likes
+
+
+def create_comment_with_token(payload, token):
+    fields = {
+        "评论内容": str(payload.get("content", "")).strip(),
+        "目标类型": str(payload.get("target_type", "")).strip().lower(),
+        "目标记录ID": str(payload.get("target_record_id", "")).strip(),
+        "点赞数": 0,
+        "状态": "active",
+    }
+    parent_id = str(payload.get("parent_id", "")).strip()
+    if parent_id:
+        fields["父评论ID"] = parent_id
+    record = create_record(get_comments_table_id(), fields, token)
+    return normalize_comment_record(record)
 
 
 def guest_mode_enabled():
@@ -464,6 +577,48 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                 json_response(self, status, {"message": str(e)})
             return
 
+        if self.path.startswith("/api/comments"):
+            try:
+                parsed = urllib.parse.urlparse(self.path)
+                query = urllib.parse.parse_qs(parsed.query)
+                target_type = (query.get("target_type", [""])[0] or "").strip().lower()
+                target_record_id = (query.get("target_record_id", [""])[0] or "").strip()
+                summary = (query.get("summary", [""])[0] or "").strip().lower() in ("1", "true", "yes")
+                comments = [
+                    item for item in fetch_comments()
+                    if item.get("status") != "deleted"
+                ]
+                if summary:
+                    summary_map = {}
+                    for comment in comments:
+                        if comment.get("status") == "hidden":
+                            continue
+                        key = f"{comment.get('target_type')}:{comment.get('target_record_id')}"
+                        if key == ":":
+                            continue
+                        summary_map[key] = summary_map.get(key, 0) + 1
+                    json_response(self, 200, {
+                        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                        "summary": summary_map
+                    })
+                    return
+                filtered = [
+                    item for item in comments
+                    if (not target_type or item.get("target_type") == target_type)
+                    and (not target_record_id or item.get("target_record_id") == target_record_id)
+                    and item.get("status") != "hidden"
+                ]
+                filtered.sort(key=lambda item: str(item.get("created_at") or ""))
+                json_response(self, 200, {
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "comments": filtered
+                })
+            except Exception as e:
+                print("Error fetching comments:", e)
+                status = e.status if isinstance(e, FeishuRequestError) else 500
+                json_response(self, status, {"message": str(e)})
+            return
+
         super().do_GET()
 
     def do_POST(self):
@@ -543,6 +698,69 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                 json_response(self, 200, {"message": "ok"})
             except Exception as e:
                 print("Error creating idea:", e)
+                status = e.status if isinstance(e, FeishuRequestError) else 500
+                json_response(self, status, {"message": str(e)})
+            return
+
+        if self.path.startswith("/api/comments"):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                user_auth = self.current_user()
+                payload = json.loads(body.decode("utf-8"))
+                submit_mode = str(payload.get("submit_mode", "")).strip().lower()
+                guest_enabled = guest_mode_enabled()
+
+                def resolve_token():
+                    if submit_mode == "guest":
+                        if not guest_enabled:
+                            raise FeishuRequestError(400, "当前未开启游客提交")
+                        return get_tenant_access_token()
+                    if submit_mode == "auth":
+                        if not user_auth:
+                            raise FeishuRequestError(401, "请先授权飞书账号")
+                        token_value = get_user_access_token(user_auth)
+                        if isinstance(token_value, tuple):
+                            token, refreshed = token_value
+                            user_auth.update(refreshed)
+                            self.save_user_auth(user_auth)
+                            return token
+                        return token_value
+                    if user_auth:
+                        token_value = get_user_access_token(user_auth)
+                        if isinstance(token_value, tuple):
+                            token, refreshed = token_value
+                            user_auth.update(refreshed)
+                            self.save_user_auth(user_auth)
+                            return token
+                        return token_value
+                    if guest_enabled:
+                        return get_tenant_access_token()
+                    raise FeishuRequestError(401, "需要先登录授权")
+
+                if payload.get("action") == "like":
+                    record_id = str(payload.get("id", "")).strip()
+                    if not record_id:
+                        json_response(self, 400, {"message": "缺少 comment id"})
+                        return
+                    next_likes = like_comment_with_token(record_id, resolve_token())
+                    json_response(self, 200, {"message": "ok", "likes": next_likes})
+                    return
+
+                content = str(payload.get("content", "")).strip()
+                target_type = str(payload.get("target_type", "")).strip().lower()
+                target_record_id = str(payload.get("target_record_id", "")).strip()
+                if not content:
+                    json_response(self, 400, {"message": "评论内容不能为空"})
+                    return
+                if target_type not in ("project", "idea") or not target_record_id:
+                    json_response(self, 400, {"message": "目标记录参数无效"})
+                    return
+
+                comment = create_comment_with_token(payload, resolve_token())
+                json_response(self, 200, {"message": "ok", "comment": comment})
+            except Exception as e:
+                print("Error handling comment:", e)
                 status = e.status if isinstance(e, FeishuRequestError) else 500
                 json_response(self, status, {"message": str(e)})
             return

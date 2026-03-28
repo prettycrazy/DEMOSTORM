@@ -54,9 +54,16 @@ const state = {
   activePool: "projects",
   searchQuery: "",
   likingIdeaIds: new Set(),
+  likingCommentIds: new Set(),
+  loadingCommentTargets: new Set(),
+  submittingCommentTargets: new Set(),
   expandedProjects: new Set(),
+  expandedComments: new Set(),
   projectsTree: [],
   ideas: [],
+  commentCounts: {},
+  commentsByTarget: {},
+  commentSummarySignature: "",
   childCount: 0,
   projectSignature: "",
   ideaSignature: "",
@@ -237,13 +244,7 @@ function getIdeaIconMarkup() {
 function getLikeIconMarkup() {
   return `
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <defs>
-        <linearGradient id="like-glow" x1="10%" y1="0%" x2="90%" y2="100%">
-          <stop offset="0%" stop-color="#FF74D4"></stop>
-          <stop offset="100%" stop-color="#7A5CFF"></stop>
-        </linearGradient>
-      </defs>
-      <path d="M12 20.2 4.9 13.4a4.3 4.3 0 0 1 6.08-6.1L12 8.3l1.02-1a4.3 4.3 0 1 1 6.08 6.1L12 20.2Z" fill="url(#like-glow)" fill-opacity="0.22" stroke="url(#like-glow)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 20.2 4.9 13.4a4.3 4.3 0 0 1 6.08-6.1L12 8.3l1.02-1a4.3 4.3 0 1 1 6.08 6.1L12 20.2Z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
   `;
 }
@@ -274,6 +275,23 @@ function resolveActionSubmitMode(preferredMode) {
     return "guest";
   }
   return "auth";
+}
+
+function resolveCommentSubmitMode() {
+  if (canUseAuthMode()) return "auth";
+  if (canUseGuestMode()) return "guest";
+  return "auth";
+}
+
+function getCommentIdentityText() {
+  const mode = resolveCommentSubmitMode();
+  if (mode === "auth" && state.authUser?.name) {
+    return `Authorized account: ${state.authUser.name}`;
+  }
+  if (mode === "guest") {
+    return "Submitting as guest";
+  }
+  return "Authorization required to comment";
 }
 
 function renderSubmitMode() {
@@ -381,6 +399,83 @@ function normalizeIdeaRecord(record) {
   };
 }
 
+function compareById(a, b) {
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function stableObject(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => stableObject(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce((acc, key) => {
+      acc[key] = stableObject(value[key]);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
+function getIdeaRenderSignature(idea) {
+  return signatureOf({
+    id: idea.id,
+    title: idea.title,
+    problem: idea.problem,
+    plan: idea.plan,
+    owner: idea.owner,
+    likes: idea.likes,
+    commentCount: getCommentCount("idea", idea.id),
+    commentsOpen: state.expandedComments.has(commentTargetKey("idea", idea.id))
+  });
+}
+
+function commentTargetKey(targetType, targetRecordId) {
+  return `${targetType}:${targetRecordId}`;
+}
+
+function getCommentCount(targetType, targetRecordId) {
+  return Number(state.commentCounts[commentTargetKey(targetType, targetRecordId)] || 0);
+}
+
+function normalizeComment(comment) {
+  return {
+    id: String(comment.id || ""),
+    content: String(comment.content || "").trim(),
+    target_type: String(comment.target_type || "").trim().toLowerCase(),
+    target_record_id: String(comment.target_record_id || "").trim(),
+    parent_id: String(comment.parent_id || "").trim(),
+    likes: normalizeLikes(comment.likes),
+    status: String(comment.status || "active").trim().toLowerCase(),
+    author_name: String(comment.author_name || "Unknown").trim() || "Unknown",
+    created_at: String(comment.created_at || "")
+  };
+}
+
+function formatCommentTime(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  let date = null;
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) {
+      date = new Date(numeric > 1e12 ? numeric : numeric * 1000);
+    }
+  } else {
+    date = new Date(raw);
+  }
+  if (!date || Number.isNaN(date.valueOf())) return String(value);
+  return date.toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function getCommentsForTarget(targetType, targetRecordId) {
+  return state.commentsByTarget[commentTargetKey(targetType, targetRecordId)] || [];
+}
+
 function calcSignalIndex(rootCount, childCount, ideaCount) {
   const score = Math.min(99, 34 + rootCount * 8 + childCount * 3 + ideaCount * 5);
   return String(score).padStart(2, "0");
@@ -417,6 +512,236 @@ function updateMeta(updatedAt) {
   });
 }
 
+function renderCommentComposer(targetType, targetRecordId) {
+  const targetKey = commentTargetKey(targetType, targetRecordId);
+  const loading = state.submittingCommentTargets.has(targetKey);
+  return `
+    <form class="comment-composer" data-comment-form="${escapeHtml(targetKey)}">
+      <textarea
+        class="comment-input"
+        data-comment-input="${escapeHtml(targetKey)}"
+        placeholder="Write a comment..."
+        rows="2"
+      ></textarea>
+      <div class="comment-composer-actions">
+        <div class="comment-action-copy">
+          <span class="comment-identity-line">${escapeHtml(getCommentIdentityText())}</span>
+          <span class="comment-submit-hint" data-comment-status="${escapeHtml(targetKey)}"></span>
+        </div>
+        <button class="comment-submit-btn" type="submit" ${loading ? "disabled" : ""}>
+          ${loading ? "Sending..." : "Comment"}
+        </button>
+      </div>
+    </form>
+  `;
+}
+
+function renderCommentPanel(targetType, targetRecordId) {
+  const targetKey = commentTargetKey(targetType, targetRecordId);
+  const active = state.expandedComments.has(targetKey);
+  const loading = state.loadingCommentTargets.has(targetKey);
+  const comments = getCommentsForTarget(targetType, targetRecordId);
+  const commentsMarkup = comments.length
+    ? comments.map((comment) => `
+        <article class="comment-item" data-comment-id="${escapeHtml(comment.id)}">
+          <div class="comment-item-head">
+            <div class="comment-author">${escapeHtml(comment.author_name)}</div>
+            <div class="comment-meta">
+              <time>${escapeHtml(formatCommentTime(comment.created_at))}</time>
+              <button
+                class="comment-like-btn${state.likingCommentIds.has(comment.id) ? " loading" : ""}"
+                type="button"
+                data-comment-like-id="${escapeHtml(comment.id)}"
+                ${state.likingCommentIds.has(comment.id) ? "disabled" : ""}
+              >
+                <span aria-hidden="true">${getLikeIconMarkup()}</span>
+                <span>${comment.likes}</span>
+              </button>
+            </div>
+          </div>
+          <div class="comment-body">${formatRichText(comment.content)}</div>
+        </article>
+      `).join("")
+    : `<div class="comment-empty">${loading ? "Loading comments..." : "No comments yet."}</div>`;
+
+  return `
+    <div class="comments-panel${active ? " active" : ""}" data-comments-panel="${escapeHtml(targetKey)}">
+      <div class="comments-list" data-comments-list="${escapeHtml(targetKey)}">${commentsMarkup}</div>
+      ${renderCommentComposer(targetType, targetRecordId)}
+    </div>
+  `;
+}
+
+function patchCommentsPanel(panel, targetType, targetRecordId) {
+  if (!panel) return;
+  const targetKey = commentTargetKey(targetType, targetRecordId);
+  const active = state.expandedComments.has(targetKey);
+  const loading = state.loadingCommentTargets.has(targetKey);
+  const comments = getCommentsForTarget(targetType, targetRecordId);
+  const list = panel.querySelector("[data-comments-list]");
+  const input = panel.querySelector("[data-comment-input]");
+  const status = panel.querySelector("[data-comment-status]");
+  const submitButton = panel.querySelector(".comment-submit-btn");
+  const identityLine = panel.querySelector(".comment-identity-line");
+  panel.dataset.commentsPanel = targetKey;
+  panel.classList.toggle("active", active);
+  if (list) {
+    list.innerHTML = comments.length
+      ? comments.map((comment) => `
+          <article class="comment-item" data-comment-id="${escapeHtml(comment.id)}">
+            <div class="comment-item-head">
+              <div class="comment-author">${escapeHtml(comment.author_name)}</div>
+              <div class="comment-meta">
+                <time>${escapeHtml(formatCommentTime(comment.created_at))}</time>
+                <button
+                  class="comment-like-btn${state.likingCommentIds.has(comment.id) ? " loading" : ""}"
+                  type="button"
+                  data-comment-like-id="${escapeHtml(comment.id)}"
+                  ${state.likingCommentIds.has(comment.id) ? "disabled" : ""}
+                >
+                  <span aria-hidden="true">${getLikeIconMarkup()}</span>
+                  <span>${comment.likes}</span>
+                </button>
+              </div>
+            </div>
+            <div class="comment-body">${formatRichText(comment.content)}</div>
+          </article>
+        `).join("")
+      : `<div class="comment-empty">${loading ? "Loading comments..." : "No comments yet."}</div>`;
+  }
+  if (identityLine) identityLine.textContent = getCommentIdentityText();
+  if (input) input.dataset.commentInput = targetKey;
+  if (status) status.dataset.commentStatus = targetKey;
+  if (submitButton) {
+    const submitting = state.submittingCommentTargets.has(targetKey);
+    submitButton.disabled = submitting;
+    submitButton.textContent = submitting ? "Sending..." : "Comment";
+  }
+}
+
+function buildProjectCardContent(project) {
+  const expanded = state.expandedProjects.has(project.id);
+  const commentKey = commentTargetKey("project", project.id);
+  const commentsOpen = state.expandedComments.has(commentKey);
+  const commentCount = getCommentCount("project", project.id);
+  const resultMarkup = project.resultLink
+    ? `<a class="result-link" href="${escapeHtml(project.resultLink)}" target="_blank" rel="noreferrer">成果展示<span aria-hidden="true">↗</span></a>`
+    : "";
+  const childMarkup = project.children.map((child) => `
+    <article class="child-card">
+      <div class="child-topline">
+        <div class="progress-ring small" style="--progress:${child.progress}">
+          <span>${child.progress}%</span>
+        </div>
+        <div>
+          <div class="child-title">${escapeHtml(child.title)}</div>
+          <div class="child-tags">
+            <span class="tag-signal">${escapeHtml(child.tag || "SYS-CORE")}</span>
+            <span class="tag-meta">ETA · ${escapeHtml(child.expectedDate)}</span>
+          </div>
+        </div>
+        <div class="owner-pill small">${escapeHtml(child.owner)}</div>
+      </div>
+      <div class="child-copy">
+        <div class="detail-block compact">
+          <div class="detail-label issue">Problem</div>
+          <div class="detail-text">${formatRichText(child.problem)}</div>
+        </div>
+        <div class="detail-block compact">
+          <div class="detail-label approach">Approach</div>
+          <div class="detail-text">${formatRichText(child.plan)}</div>
+        </div>
+      </div>
+      ${child.resultLink ? `<div class="child-footer"><a class="result-link small" href="${escapeHtml(child.resultLink)}" target="_blank" rel="noreferrer">成果展示<span aria-hidden="true">↗</span></a></div>` : ""}
+    </article>
+  `).join("");
+
+  const childCount = project.children.length;
+  const expandButton = childCount
+    ? `
+        <button
+          class="subroute-btn"
+          type="button"
+          data-project-id="${escapeHtml(project.id)}"
+          data-child-count="${childCount}"
+          aria-expanded="${expanded ? "true" : "false"}"
+        >
+          ${expanded ? "HIDE SUB-ROUTINES" : `VIEW ${childCount} SUB-ROUTINES`}
+        </button>
+      `
+    : "";
+
+  return `
+    <div class="card-topline">
+      <div class="progress-ring" style="--progress:${project.progress}">
+        <span>${project.progress}%</span>
+      </div>
+      <div class="project-headline">
+        <div class="project-title-row">
+          <h3>${escapeHtml(project.title)}</h3>
+        </div>
+        <div class="project-tags">
+          <span class="tag-signal">${escapeHtml(project.tag || "SYS-CORE")}</span>
+          <span class="tag-meta">ETA · ${escapeHtml(project.expectedDate)}</span>
+          ${resultMarkup}
+        </div>
+      </div>
+      <div class="owner-pill">${escapeHtml(project.owner)}</div>
+    </div>
+    <div class="detail-grid">
+      <section class="detail-block">
+        <div class="detail-label issue">Problem</div>
+        <div class="detail-text">${formatRichText(project.problem)}</div>
+      </section>
+      <section class="detail-block">
+        <div class="detail-label approach">Approach</div>
+        <div class="detail-text">${formatRichText(project.plan)}</div>
+      </section>
+    </div>
+    ${expandButton ? `<div class="card-actions">${expandButton}</div>` : ""}
+    <div class="children-panel${expanded ? " active" : ""}">
+      <div class="children-grid">${childMarkup}</div>
+    </div>
+    <div class="project-card-footer">
+      <button
+        class="comment-toggle-btn${commentsOpen ? " active" : ""}"
+        type="button"
+        data-comments-target="${escapeHtml(commentKey)}"
+        data-target-type="project"
+        data-target-record-id="${escapeHtml(project.id)}"
+        aria-expanded="${commentsOpen ? "true" : "false"}"
+      >
+        <span>Comments</span>
+        <span class="comment-toggle-count">${commentCount}</span>
+      </button>
+    </div>
+    ${renderCommentPanel("project", project.id)}
+  `;
+}
+
+function createProjectCardElement(project, index) {
+  const template = document.createElement("template");
+  template.innerHTML = `
+    <article
+      class="signal-card project-card reveal${state.expandedProjects.has(project.id) ? " expanded" : ""}"
+      data-project-id="${escapeHtml(project.id)}"
+      style="--progress:${project.progress}; animation-delay:${index * 70}ms"
+    >
+      ${buildProjectCardContent(project)}
+    </article>
+  `.trim();
+  return template.content.firstElementChild;
+}
+
+function patchProjectCard(card, project, index) {
+  if (!card || !project) return;
+  card.dataset.projectId = project.id;
+  card.classList.toggle("expanded", state.expandedProjects.has(project.id));
+  card.style.setProperty("--progress", String(project.progress));
+  card.style.animationDelay = `${index * 70}ms`;
+  card.innerHTML = buildProjectCardContent(project);
+}
+
 function renderProjects() {
   const filteredProjects = state.projectsTree.filter((project) => matchesSearch([
     project.title,
@@ -426,96 +751,48 @@ function renderProjects() {
     ...project.children.flatMap((child) => [child.title, child.problem, child.plan, child.owner])
   ]));
 
-  elements.projectsList.innerHTML = filteredProjects.map((project, index) => {
-    const expanded = state.expandedProjects.has(project.id);
-    const resultMarkup = project.resultLink
-      ? `<a class="result-link" href="${escapeHtml(project.resultLink)}" target="_blank" rel="noreferrer">成果展示<span aria-hidden="true">↗</span></a>`
-      : "";
-    const childMarkup = project.children.map((child) => `
-      <article class="child-card">
-        <div class="child-topline">
-          <div class="progress-ring small" style="--progress:${child.progress}">
-            <span>${child.progress}%</span>
-          </div>
-          <div>
-            <div class="child-title">${escapeHtml(child.title)}</div>
-            <div class="child-tags">
-              <span class="tag-signal">${escapeHtml(child.tag || "SYS-CORE")}</span>
-              <span class="tag-meta">ETA · ${escapeHtml(child.expectedDate)}</span>
-            </div>
-          </div>
-          <div class="owner-pill small">${escapeHtml(child.owner)}</div>
-        </div>
-        <div class="child-copy">
-          <div class="detail-block compact">
-            <div class="detail-label issue">Problem</div>
-            <div class="detail-text">${formatRichText(child.problem)}</div>
-          </div>
-          <div class="detail-block compact">
-            <div class="detail-label approach">Approach</div>
-            <div class="detail-text">${formatRichText(child.plan)}</div>
-          </div>
-        </div>
-        ${child.resultLink ? `<div class="child-footer"><a class="result-link small" href="${escapeHtml(child.resultLink)}" target="_blank" rel="noreferrer">成果展示<span aria-hidden="true">↗</span></a></div>` : ""}
-      </article>
-    `).join("");
-
-    const childCount = project.children.length;
-    const expandButton = childCount
-      ? `
-          <div class="card-actions">
-            <button
-              class="subroute-btn"
-              type="button"
-              data-project-id="${escapeHtml(project.id)}"
-              data-child-count="${childCount}"
-              aria-expanded="${expanded ? "true" : "false"}"
-            >
-              ${expanded ? "HIDE SUB-ROUTINES" : `VIEW ${childCount} SUB-ROUTINES`}
-            </button>
-          </div>
-        `
-      : "";
-
-    return `
-      <article class="signal-card project-card reveal${expanded ? " expanded" : ""}" style="--progress:${project.progress}; animation-delay:${index * 70}ms">
-        <div class="card-topline">
-          <div class="progress-ring" style="--progress:${project.progress}">
-            <span>${project.progress}%</span>
-          </div>
-          <div class="project-headline">
-            <div class="project-title-row">
-              <h3>${escapeHtml(project.title)}</h3>
-            </div>
-            <div class="project-tags">
-              <span class="tag-signal">${escapeHtml(project.tag || "SYS-CORE")}</span>
-              <span class="tag-meta">ETA · ${escapeHtml(project.expectedDate)}</span>
-              ${resultMarkup}
-            </div>
-          </div>
-          <div class="owner-pill">${escapeHtml(project.owner)}</div>
-        </div>
-        <div class="detail-grid">
-          <section class="detail-block">
-            <div class="detail-label issue">Problem</div>
-            <div class="detail-text">${formatRichText(project.problem)}</div>
-          </section>
-          <section class="detail-block">
-            <div class="detail-label approach">Approach</div>
-            <div class="detail-text">${formatRichText(project.plan)}</div>
-          </section>
-        </div>
-        ${expandButton}
-        <div class="children-panel${expanded ? " active" : ""}">
-          <div class="children-grid">${childMarkup}</div>
-        </div>
-      </article>
-    `;
-  }).join("");
-
   if (!filteredProjects.length) {
     elements.projectsList.innerHTML = '<div class="empty-state wide">没有匹配的项目结果。</div>';
+    return;
   }
+
+  const emptyState = elements.projectsList.querySelector(".empty-state");
+  if (emptyState) emptyState.remove();
+
+  const existingCards = new Map(
+    Array.from(elements.projectsList.querySelectorAll(".project-card[data-project-id]"))
+      .map((card) => [card.dataset.projectId, card])
+  );
+
+  let previousCard = null;
+  filteredProjects.forEach((project, index) => {
+    let card = existingCards.get(project.id);
+    if (!card) {
+      card = createProjectCardElement(project, index);
+    } else {
+      existingCards.delete(project.id);
+    }
+
+    patchProjectCard(card, project, index);
+
+    if (!card.isConnected) {
+      if (previousCard?.nextSibling) {
+        elements.projectsList.insertBefore(card, previousCard.nextSibling);
+      } else {
+        elements.projectsList.appendChild(card);
+      }
+    } else if (!previousCard) {
+      if (elements.projectsList.firstElementChild !== card) {
+        elements.projectsList.insertBefore(card, elements.projectsList.firstElementChild);
+      }
+    } else if (previousCard.nextElementSibling !== card) {
+      elements.projectsList.insertBefore(card, previousCard.nextElementSibling);
+    }
+
+    previousCard = card;
+  });
+
+  existingCards.forEach((card) => card.remove());
 }
 
 function getFilteredIdeas() {
@@ -528,6 +805,8 @@ function getFilteredIdeas() {
 }
 
 function createIdeaCardElement(idea) {
+  const targetKey = commentTargetKey("idea", idea.id);
+  const commentsOpen = state.expandedComments.has(targetKey);
   const template = document.createElement("template");
   template.innerHTML = `
     <article class="signal-card idea-card" data-idea-id="${escapeHtml(idea.id)}">
@@ -556,6 +835,17 @@ function createIdeaCardElement(idea) {
       </div>
       <div class="idea-actions">
         <button
+          class="comment-toggle-btn${commentsOpen ? " active" : ""}"
+          type="button"
+          data-comments-target="${escapeHtml(targetKey)}"
+          data-target-type="idea"
+          data-target-record-id="${escapeHtml(idea.id)}"
+          aria-expanded="${commentsOpen ? "true" : "false"}"
+        >
+          <span>Comments</span>
+          <span class="comment-toggle-count">${getCommentCount("idea", idea.id)}</span>
+        </button>
+        <button
           class="like-btn${state.likingIdeaIds.has(idea.id) ? " loading" : ""}"
           type="button"
           data-like-id="${escapeHtml(idea.id)}"
@@ -566,6 +856,7 @@ function createIdeaCardElement(idea) {
           <span class="like-btn-count">${idea.likes}</span>
         </button>
       </div>
+      ${renderCommentPanel("idea", idea.id)}
     </article>
   `.trim();
   return template.content.firstElementChild;
@@ -579,6 +870,9 @@ function patchIdeaCard(card, idea) {
   const detailTexts = card.querySelectorAll(".detail-text");
   const likeButton = card.querySelector("[data-like-id]");
   const likeCount = card.querySelector(".like-btn-count");
+  const commentButton = card.querySelector("[data-comments-target]");
+  const commentCount = card.querySelector(".comment-toggle-count");
+  const commentsPanel = card.querySelector(`[data-comments-panel="${CSS.escape(commentTargetKey("idea", idea.id))}"]`);
   if (title) title.textContent = idea.title;
   if (owner) owner.textContent = idea.owner;
   if (detailTexts[0]) detailTexts[0].innerHTML = formatRichText(idea.problem);
@@ -589,6 +883,19 @@ function patchIdeaCard(card, idea) {
     likeButton.disabled = state.likingIdeaIds.has(idea.id);
   }
   if (likeCount) likeCount.textContent = String(idea.likes);
+  if (commentButton) {
+    const targetKey = commentTargetKey("idea", idea.id);
+    const active = state.expandedComments.has(targetKey);
+    commentButton.dataset.commentsTarget = targetKey;
+    commentButton.dataset.targetType = "idea";
+    commentButton.dataset.targetRecordId = idea.id;
+    commentButton.classList.toggle("active", active);
+    commentButton.setAttribute("aria-expanded", active ? "true" : "false");
+  }
+  if (commentCount) commentCount.textContent = String(getCommentCount("idea", idea.id));
+  if (commentsPanel) {
+    patchCommentsPanel(commentsPanel, "idea", idea.id);
+  }
 }
 
 function renderIdeas() {
@@ -616,7 +923,11 @@ function renderIdeas() {
       existingCards.delete(idea.id);
     }
 
-    patchIdeaCard(card, idea);
+    const nextRenderSignature = getIdeaRenderSignature(idea);
+    if (card.dataset.renderSignature !== nextRenderSignature) {
+      patchIdeaCard(card, idea);
+      card.dataset.renderSignature = nextRenderSignature;
+    }
 
     if (!card.isConnected) {
       if (previousCard?.nextSibling) {
@@ -638,6 +949,171 @@ function renderIdeas() {
   existingCards.forEach((card) => card.remove());
 }
 
+function updateVisibleCommentCounts() {
+  elements.projectsList?.querySelectorAll("[data-comments-target]").forEach((button) => {
+    const targetType = button.dataset.targetType;
+    const targetRecordId = button.dataset.targetRecordId;
+    const countNode = button.querySelector(".comment-toggle-count");
+    const targetKey = commentTargetKey(targetType, targetRecordId);
+    const active = state.expandedComments.has(targetKey);
+    if (countNode) countNode.textContent = String(getCommentCount(targetType, targetRecordId));
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-expanded", active ? "true" : "false");
+  });
+  elements.projectsList?.querySelectorAll(".project-card[data-project-id]").forEach((card) => {
+    const projectId = card.dataset.projectId;
+    const panel = card.querySelector(`[data-comments-panel="${CSS.escape(commentTargetKey("project", projectId))}"]`);
+    if (panel) patchCommentsPanel(panel, "project", projectId);
+  });
+  elements.ideasList?.querySelectorAll(".idea-card[data-idea-id]").forEach((card) => {
+    const idea = state.ideas.find((item) => item.id === card.dataset.ideaId);
+    if (!idea) return;
+    const nextRenderSignature = getIdeaRenderSignature(idea);
+    if (card.dataset.renderSignature !== nextRenderSignature) {
+      patchIdeaCard(card, idea);
+      card.dataset.renderSignature = nextRenderSignature;
+    }
+  });
+}
+
+async function loadCommentSummary() {
+  try {
+    const response = await fetch(`${API_BASE}/comments?summary=1`, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    const summary = data?.summary || {};
+    const nextSignature = signatureOf(summary);
+    if (nextSignature === state.commentSummarySignature) return;
+    state.commentSummarySignature = nextSignature;
+    state.commentCounts = summary;
+    updateVisibleCommentCounts();
+  } catch (error) {
+    // ignore summary errors
+  }
+}
+
+async function loadCommentsForTarget(targetType, targetRecordId) {
+  const targetKey = commentTargetKey(targetType, targetRecordId);
+  if (state.loadingCommentTargets.has(targetKey)) return;
+  state.loadingCommentTargets.add(targetKey);
+  updateVisibleCommentCounts();
+  try {
+    const response = await fetch(`${API_BASE}/comments?target_type=${encodeURIComponent(targetType)}&target_record_id=${encodeURIComponent(targetRecordId)}`, {
+      cache: "no-store"
+    });
+    if (!response.ok) throw new Error("load comments failed");
+    const data = await response.json();
+    state.commentsByTarget[targetKey] = (data?.comments || []).map(normalizeComment);
+    state.commentCounts[targetKey] = state.commentsByTarget[targetKey].length;
+    state.commentSummarySignature = signatureOf(state.commentCounts);
+  } catch (error) {
+    if (!state.commentsByTarget[targetKey]) {
+      state.commentsByTarget[targetKey] = [];
+    }
+  } finally {
+    state.loadingCommentTargets.delete(targetKey);
+    if (targetType === "idea") {
+      const card = elements.ideasList.querySelector(`.idea-card[data-idea-id="${CSS.escape(targetRecordId)}"]`);
+      const idea = state.ideas.find((item) => item.id === targetRecordId);
+      if (card && idea) patchIdeaCard(card, idea);
+    } else {
+      renderProjects();
+    }
+    updateVisibleCommentCounts();
+  }
+}
+
+async function likeComment(commentId, targetKey) {
+  if (!commentId || !targetKey || state.likingCommentIds.has(commentId)) return;
+  const comments = state.commentsByTarget[targetKey] || [];
+  const comment = comments.find((item) => item.id === commentId);
+  if (!comment) return;
+  const previousLikes = comment.likes;
+  state.likingCommentIds.add(commentId);
+  comment.likes += 1;
+  updateVisibleCommentCounts();
+  try {
+    const response = await fetch(`${API_BASE}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "like",
+        id: commentId,
+        submit_mode: resolveActionSubmitMode(state.submitMode)
+      })
+    });
+    const detail = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(detail.message || "点赞评论失败");
+    comment.likes = normalizeLikes(detail.likes);
+  } catch (error) {
+    comment.likes = previousLikes;
+  } finally {
+    state.likingCommentIds.delete(commentId);
+    updateVisibleCommentCounts();
+  }
+}
+
+async function submitComment(targetType, targetRecordId, form) {
+  const targetKey = commentTargetKey(targetType, targetRecordId);
+  const input = form.querySelector("[data-comment-input]");
+  const status = form.querySelector("[data-comment-status]");
+  const content = input?.value.trim();
+  if (!content) {
+    if (status) status.textContent = "请输入评论";
+    return;
+  }
+
+  const submitMode = resolveCommentSubmitMode();
+  if (submitMode === "auth" && !canUseAuthMode()) {
+    if (status) status.textContent = "Please authorize first";
+    return;
+  }
+  if (submitMode === "guest" && !canUseGuestMode()) {
+    if (status) status.textContent = "Guest mode unavailable";
+    return;
+  }
+
+  state.submittingCommentTargets.add(targetKey);
+  if (status) status.textContent = "Sending...";
+  updateVisibleCommentCounts();
+
+  try {
+    const response = await fetch(`${API_BASE}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content,
+        target_type: targetType,
+        target_record_id: targetRecordId,
+        submit_mode: submitMode
+      })
+    });
+    const detail = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(detail.message || "评论发送失败");
+    }
+    const nextComment = normalizeComment(detail.comment || {});
+    const nextList = [...getCommentsForTarget(targetType, targetRecordId), nextComment];
+    state.commentsByTarget[targetKey] = nextList;
+    state.commentCounts[targetKey] = nextList.length;
+    state.commentSummarySignature = signatureOf(state.commentCounts);
+    if (input) input.value = "";
+    if (status) status.textContent = "";
+  } catch (error) {
+    if (status) status.textContent = error.message || "评论发送失败";
+  } finally {
+    state.submittingCommentTargets.delete(targetKey);
+    if (targetType === "project") {
+      renderProjects();
+    } else {
+      const card = elements.ideasList.querySelector(`.idea-card[data-idea-id="${CSS.escape(targetRecordId)}"]`);
+      const idea = state.ideas.find((item) => item.id === targetRecordId);
+      if (card && idea) patchIdeaCard(card, idea);
+    }
+    updateVisibleCommentCounts();
+  }
+}
+
 function renderStats() {
   elements.projectCount.textContent = String(state.projectsTree.length).padStart(2, "0");
   elements.childCount.textContent = String(state.childCount).padStart(2, "0");
@@ -652,7 +1128,7 @@ function renderAll() {
 }
 
 function signatureOf(value) {
-  return JSON.stringify(value);
+  return JSON.stringify(stableObject(value));
 }
 
 function setActivePool(pool) {
@@ -709,6 +1185,7 @@ async function loadData() {
     const nextIdeas = (ideasData.records || [])
       .filter((record) => hasMeaningfulFields(record.fields))
       .map(normalizeIdeaRecord)
+      .sort(compareById)
       .filter((idea) => idea.title && idea.title !== "未命名 Idea");
 
     const nextProjectSignature = signatureOf({ roots: nextProjects, childCount: nextChildCount });
@@ -810,6 +1287,7 @@ async function loadMe() {
 function bindEvents() {
   elements.refreshBtn?.addEventListener("click", () => {
     loadData();
+    loadCommentSummary();
     loadMe();
   });
 
@@ -825,6 +1303,33 @@ function bindEvents() {
   });
 
   elements.projectsList?.addEventListener("click", (event) => {
+    const commentLikeButton = event.target.closest("[data-comment-like-id]");
+    if (commentLikeButton) {
+      const commentId = commentLikeButton.dataset.commentLikeId;
+      const targetKey = commentLikeButton.closest("[data-comments-panel]")?.dataset.commentsPanel;
+      likeComment(commentId, targetKey);
+      return;
+    }
+
+    const commentButton = event.target.closest("[data-comments-target]");
+    if (commentButton) {
+      const targetType = commentButton.dataset.targetType;
+      const targetRecordId = commentButton.dataset.targetRecordId;
+      const targetKey = commentButton.dataset.commentsTarget;
+      if (!targetType || !targetRecordId || !targetKey) return;
+      if (state.expandedComments.has(targetKey)) {
+        state.expandedComments.delete(targetKey);
+        renderProjects();
+        return;
+      }
+      state.expandedComments.add(targetKey);
+      renderProjects();
+      if (!state.commentsByTarget[targetKey]) {
+        loadCommentsForTarget(targetType, targetRecordId);
+      }
+      return;
+    }
+
     const button = event.target.closest("[data-project-id]");
     if (!button) return;
     const projectId = button.dataset.projectId;
@@ -847,7 +1352,48 @@ function bindEvents() {
     }
   });
 
+  elements.projectsList?.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-comment-form]");
+    if (!form) return;
+    event.preventDefault();
+    const targetKey = form.dataset.commentForm;
+    const [targetType, targetRecordId] = String(targetKey || "").split(":");
+    if (!targetType || !targetRecordId) return;
+    await submitComment(targetType, targetRecordId, form);
+  });
+
   elements.ideasList?.addEventListener("click", async (event) => {
+    const commentLikeButton = event.target.closest("[data-comment-like-id]");
+    if (commentLikeButton) {
+      const commentId = commentLikeButton.dataset.commentLikeId;
+      const targetKey = commentLikeButton.closest("[data-comments-panel]")?.dataset.commentsPanel;
+      likeComment(commentId, targetKey);
+      return;
+    }
+
+    const commentButton = event.target.closest("[data-comments-target]");
+    if (commentButton) {
+      const targetType = commentButton.dataset.targetType;
+      const targetRecordId = commentButton.dataset.targetRecordId;
+      const targetKey = commentButton.dataset.commentsTarget;
+      if (!targetType || !targetRecordId || !targetKey) return;
+      if (state.expandedComments.has(targetKey)) {
+        state.expandedComments.delete(targetKey);
+        const idea = state.ideas.find((item) => item.id === targetRecordId);
+        const card = commentButton.closest(".idea-card");
+        if (card && idea) patchIdeaCard(card, idea);
+        return;
+      }
+      state.expandedComments.add(targetKey);
+      const idea = state.ideas.find((item) => item.id === targetRecordId);
+      const card = commentButton.closest(".idea-card");
+      if (card && idea) patchIdeaCard(card, idea);
+      if (!state.commentsByTarget[targetKey]) {
+        loadCommentsForTarget(targetType, targetRecordId);
+      }
+      return;
+    }
+
     const button = event.target.closest("[data-like-id]");
     if (!button) return;
     const ideaId = button.dataset.likeId;
@@ -885,6 +1431,16 @@ function bindEvents() {
         patchIdeaCard(ideaCard, targetIdea);
       }
     }
+  });
+
+  elements.ideasList?.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-comment-form]");
+    if (!form) return;
+    event.preventDefault();
+    const targetKey = form.dataset.commentForm;
+    const [targetType, targetRecordId] = String(targetKey || "").split(":");
+    if (!targetType || !targetRecordId) return;
+    await submitComment(targetType, targetRecordId, form);
   });
 
 
@@ -1000,7 +1556,9 @@ try { updateToday(); } catch (error) { console.error("updateToday failed", error
 try { bindEvents(); } catch (error) { console.error("bindEvents failed", error); }
 try { setActivePool("projects"); } catch (error) { console.error("setActivePool failed", error); }
 Promise.resolve().then(() => loadData()).catch((error) => console.error("loadData failed", error));
+Promise.resolve().then(() => loadCommentSummary()).catch((error) => console.error("loadCommentSummary failed", error));
 Promise.resolve().then(() => loadMe()).catch((error) => console.error("loadMe failed", error));
 setInterval(() => {
   loadData().catch((error) => console.error("interval loadData failed", error));
+  loadCommentSummary().catch((error) => console.error("interval loadCommentSummary failed", error));
 }, 30000);
