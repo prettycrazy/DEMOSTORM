@@ -1,0 +1,25 @@
+{
+  "name": "demostorm",
+  "version": "1.0.0",
+  "description": "INNOVATION DECK - Feishu Bitable live surface",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prettycrazy/DEMOSTORM.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/prettycrazy/DEMOSTORM/issues"
+  },
+  "homepage": "https://github.com/prettycrazy/DEMOSTORM#readme",
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
+  }
+}
