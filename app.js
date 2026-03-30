@@ -1,3 +1,8 @@
+import { inject } from '@vercel/analytics';
+
+// Initialize Vercel Web Analytics
+inject();
+
 const DEFAULT_PROJECTS = {
   updated_at: "2026-03-25T08:30:00+08:00",
   records: [
