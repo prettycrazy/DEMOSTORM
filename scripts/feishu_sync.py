@@ -54,11 +54,13 @@ def get_tenant_access_token(app_id, app_secret):
     return res["tenant_access_token"]
 
 
-def fetch_records(app_token, table_id, access_token, page_size=200):
+def fetch_records(app_token, table_id, access_token, page_size=200, text_field_as_array=False):
     records = []
     page_token = None
     while True:
         url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records?page_size={page_size}"
+        if text_field_as_array:
+            url += "&text_field_as_array=true"
         if page_token:
             url += f"&page_token={page_token}"
         res = http_request(url, headers={"Authorization": f"Bearer {access_token}"})
@@ -94,8 +96,8 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     access_token = get_tenant_access_token(app_id, app_secret)
-    projects = fetch_records(app_token, projects_table_id, access_token, args.page_size)
-    ideas = fetch_records(app_token, ideas_table_id, access_token, args.page_size)
+    projects = fetch_records(app_token, projects_table_id, access_token, args.page_size, text_field_as_array=True)
+    ideas = fetch_records(app_token, ideas_table_id, access_token, args.page_size, text_field_as_array=True)
 
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 

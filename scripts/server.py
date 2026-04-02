@@ -180,13 +180,15 @@ def get_user_access_token(user_auth):
     return refreshed["access_token"], refreshed
 
 
-def fetch_records(table_id):
+def fetch_records(table_id, text_field_as_array=False):
     app_token = get_env("FEISHU_BITABLE_APP_TOKEN")
     token = get_tenant_access_token()
     records = []
     page_token = None
     while True:
         url = f"{API_BASE}/bitable/v1/apps/{app_token}/tables/{table_id}/records?page_size=200"
+        if text_field_as_array:
+            url += "&text_field_as_array=true"
         if page_token:
             url += f"&page_token={page_token}"
         res = http_request(url, headers={"Authorization": f"Bearer {token}"})
@@ -553,7 +555,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/projects"):
             try:
-                records = fetch_records(get_env("FEISHU_PROJECTS_TABLE_ID"))
+                records = fetch_records(get_env("FEISHU_PROJECTS_TABLE_ID"), text_field_as_array=True)
                 json_response(self, 200, {
                     "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                     "records": records
@@ -566,7 +568,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/ideas"):
             try:
-                records = fetch_records(get_env("FEISHU_IDEAS_TABLE_ID"))
+                records = fetch_records(get_env("FEISHU_IDEAS_TABLE_ID"), text_field_as_array=True)
                 json_response(self, 200, {
                     "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                     "records": records

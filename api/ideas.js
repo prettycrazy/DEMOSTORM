@@ -64,7 +64,7 @@ module.exports = async (req, res) => {
       const token = await getTenantAccessToken()
       const appToken = process.env.FEISHU_BITABLE_APP_TOKEN
       const tableId = process.env.FEISHU_IDEAS_TABLE_ID
-      const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=200`
+      const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=200&text_field_as_array=true`
       const data = await httpRequest(url, {
         headers: { Authorization: `Bearer ${token}` },
       })

@@ -122,8 +122,78 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function getMentionLabel(mentionType) {
+  switch (String(mentionType || "").trim()) {
+    case "Docx":
+      return "飞书文档";
+    case "Sheet":
+      return "飞书表格";
+    case "Bitable":
+      return "多维表格";
+    case "Wiki":
+      return "知识库";
+    case "File":
+      return "附件";
+    default:
+      return "";
+  }
+}
+
+function extractTextContent(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map((item) => extractTextContent(item)).join("");
+  if (typeof value !== "object") return "";
+
+  const directText = [value.text, value.name, value.title, value.label]
+    .find((candidate) => typeof candidate === "string" && candidate.trim());
+  if (directText) return directText;
+
+  const directLink = [value.link, value.url, value.href]
+    .find((candidate) => typeof candidate === "string" && candidate.trim());
+  if (directLink) return directLink;
+
+  return "";
+}
+
+function collectRichSegments(value) {
+  if (value === null || value === undefined || value === "") return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return [{ text: String(value) }];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectRichSegments(item));
+  }
+  if (typeof value !== "object") return [];
+
+  const href = [value.link, value.url, value.href]
+    .find((candidate) => typeof candidate === "string" && /^https?:\/\//i.test(candidate.trim()));
+  const text = [value.text, value.name, value.title, value.label]
+    .find((candidate) => typeof candidate === "string" && candidate.trim());
+
+  if (href) {
+    return [{
+      text: text || getMentionLabel(value.mentionType) || href,
+      href,
+    }];
+  }
+  if (text) return [{ text }];
+  return [];
+}
+
 function formatRichText(value) {
-  const text = String(value || "").trim();
+  const segments = collectRichSegments(value);
+  if (segments.length) {
+    return segments.map((segment) => {
+      if (segment.href) {
+        return `<a class="inline-link" href="${escapeHtml(segment.href)}" target="_blank" rel="noreferrer">${escapeHtml(segment.text).replace(/\n/g, "<br />")}</a>`;
+      }
+      return linkifyText(segment.text).replace(/\n/g, "<br />");
+    }).join("");
+  }
+
+  const text = extractTextContent(value).trim();
   if (!text) return "暂无信息";
   return linkifyText(text).replace(/\n/g, "<br />");
 }
@@ -165,7 +235,7 @@ function formatDate(value) {
       });
     }
   }
-  return String(value);
+  return extractTextContent(value) || String(value);
 }
 
 function normalizeProgress(value) {
@@ -324,8 +394,8 @@ function normalizeProjectRecord(record) {
   const fields = record.fields || {};
   return {
     id: record.id,
-    title: pickField(fields, FIELD_ALIASES.projectTitle) || "未命名项目",
-    tag: pickField(fields, FIELD_ALIASES.projectTag) || "SYS-CORE",
+    title: extractTextContent(pickField(fields, FIELD_ALIASES.projectTitle)).trim() || "未命名项目",
+    tag: extractTextContent(pickField(fields, FIELD_ALIASES.projectTag)).trim() || "SYS-CORE",
     problem: pickField(fields, FIELD_ALIASES.problem),
     plan: pickField(fields, FIELD_ALIASES.plan),
     owner: extractPersonName(pickField(fields, FIELD_ALIASES.owner)),
@@ -391,7 +461,7 @@ function normalizeIdeaRecord(record) {
   const fields = record.fields || {};
   return {
     id: record.id,
-    title: pickField(fields, FIELD_ALIASES.ideaTitle) || "未命名 Idea",
+    title: extractTextContent(pickField(fields, FIELD_ALIASES.ideaTitle)).trim() || "未命名 Idea",
     problem: pickField(fields, FIELD_ALIASES.problem),
     plan: pickField(fields, FIELD_ALIASES.plan),
     owner: extractPersonName(pickField(fields, FIELD_ALIASES.proposer)),
@@ -484,7 +554,7 @@ function calcSignalIndex(rootCount, childCount, ideaCount) {
 function matchesSearch(parts) {
   const query = state.searchQuery.trim().toLowerCase();
   if (!query) return true;
-  return parts.some((part) => String(part || "").toLowerCase().includes(query));
+  return parts.some((part) => extractTextContent(part).toLowerCase().includes(query));
 }
 
 function updateToday() {
