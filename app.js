@@ -21,6 +21,7 @@ const DEFAULT_IDEAS = {
       id: "i1",
       fields: {
         "IDEA标题": "创新挑战赛小程序",
+        "状态": "OPEN POOL",
         "填写人": [{ name: "Jin" }],
         "demo的思路（非必填）": "用任务解锁和互评机制持续吸引参与。",
         "解决的问题（必填）": "团队创意输入零散，缺少可持续的收集和激励机制。"
@@ -33,6 +34,8 @@ const API_BASE = "/api";
 const FIELD_ALIASES = {
   projectTitle: ["DEMO名称", "项目名称", "Title", "标题"],
   projectTag: ["标签", "Tag", "标签名"],
+  ideaTag: ["标签", "Tag", "标签名", "分类", "类型"],
+  ideaStatus: ["状态", "Status", "阶段", "Stage"],
   ideaTitle: ["IDEA标题", "Idea", "Title", "标题"],
   owner: ["负责人", "Owner", "Owner/Lead", "Lead"],
   proposer: ["填写人", "提出人", "Owner", "Creator"],
@@ -462,6 +465,8 @@ function normalizeIdeaRecord(record) {
   return {
     id: record.id,
     title: extractTextContent(pickField(fields, FIELD_ALIASES.ideaTitle)).trim() || "未命名 Idea",
+    tag: extractTextContent(pickField(fields, FIELD_ALIASES.ideaTag)).trim() || "CONCEPT",
+    status: extractTextContent(pickField(fields, FIELD_ALIASES.ideaStatus)).trim() || "OPEN POOL",
     problem: pickField(fields, FIELD_ALIASES.problem),
     plan: pickField(fields, FIELD_ALIASES.plan),
     owner: extractPersonName(pickField(fields, FIELD_ALIASES.proposer)),
@@ -490,6 +495,8 @@ function getIdeaRenderSignature(idea) {
   return signatureOf({
     id: idea.id,
     title: idea.title,
+    tag: idea.tag,
+    status: idea.status,
     problem: idea.problem,
     plan: idea.plan,
     owner: idea.owner,
@@ -868,6 +875,8 @@ function renderProjects() {
 function getFilteredIdeas() {
   return state.ideas.filter((idea) => matchesSearch([
     idea.title,
+    idea.tag,
+    idea.status,
     idea.problem,
     idea.plan,
     idea.owner
@@ -887,8 +896,8 @@ function createIdeaCardElement(idea) {
             <h3>${escapeHtml(idea.title)}</h3>
           </div>
           <div class="project-tags">
-            <span class="tag-signal">CONCEPT</span>
-            <span class="tag-meta">OPEN POOL</span>
+            <span class="tag-signal">${escapeHtml(idea.tag)}</span>
+            <span class="tag-meta">${escapeHtml(idea.status)}</span>
           </div>
         </div>
         <div class="owner-pill">${escapeHtml(idea.owner)}</div>
@@ -937,6 +946,8 @@ function patchIdeaCard(card, idea) {
   card.dataset.ideaId = idea.id;
   const title = card.querySelector(".project-title-row h3");
   const owner = card.querySelector(".owner-pill");
+  const tagSignal = card.querySelector(".tag-signal");
+  const tagMeta = card.querySelector(".tag-meta");
   const detailTexts = card.querySelectorAll(".detail-text");
   const likeButton = card.querySelector("[data-like-id]");
   const likeCount = card.querySelector(".like-btn-count");
@@ -945,6 +956,8 @@ function patchIdeaCard(card, idea) {
   const commentsPanel = card.querySelector(`[data-comments-panel="${CSS.escape(commentTargetKey("idea", idea.id))}"]`);
   if (title) title.textContent = idea.title;
   if (owner) owner.textContent = idea.owner;
+  if (tagSignal) tagSignal.textContent = idea.tag;
+  if (tagMeta) tagMeta.textContent = idea.status;
   if (detailTexts[0]) detailTexts[0].innerHTML = formatRichText(idea.problem);
   if (detailTexts[1]) detailTexts[1].innerHTML = formatRichText(idea.plan);
   if (likeButton) {
@@ -1046,6 +1059,28 @@ function updateVisibleCommentCounts() {
   });
 }
 
+function patchCommentTargetUI(targetType, targetRecordId) {
+  const targetKey = commentTargetKey(targetType, targetRecordId);
+  const list = targetType === "project" ? elements.projectsList : elements.ideasList;
+  const selector = targetType === "project"
+    ? `.project-card[data-project-id="${CSS.escape(targetRecordId)}"]`
+    : `.idea-card[data-idea-id="${CSS.escape(targetRecordId)}"]`;
+  const card = list?.querySelector(selector);
+  if (!card) return;
+
+  const button = card.querySelector(`[data-comments-target="${CSS.escape(targetKey)}"]`);
+  if (button) {
+    const active = state.expandedComments.has(targetKey);
+    const countNode = button.querySelector(".comment-toggle-count");
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-expanded", active ? "true" : "false");
+    if (countNode) countNode.textContent = String(getCommentCount(targetType, targetRecordId));
+  }
+
+  const panel = card.querySelector(`[data-comments-panel="${CSS.escape(targetKey)}"]`);
+  if (panel) patchCommentsPanel(panel, targetType, targetRecordId);
+}
+
 async function loadCommentSummary() {
   try {
     const response = await fetch(`${API_BASE}/comments?summary=1`, { cache: "no-store" });
@@ -1066,7 +1101,8 @@ async function loadCommentsForTarget(targetType, targetRecordId) {
   const targetKey = commentTargetKey(targetType, targetRecordId);
   if (state.loadingCommentTargets.has(targetKey)) return;
   state.loadingCommentTargets.add(targetKey);
-  updateVisibleCommentCounts();
+  patchCommentTargetUI(targetType, targetRecordId);
+  let loaded = false;
   try {
     const response = await fetch(`${API_BASE}/comments?target_type=${encodeURIComponent(targetType)}&target_record_id=${encodeURIComponent(targetRecordId)}`, {
       cache: "no-store"
@@ -1076,21 +1112,16 @@ async function loadCommentsForTarget(targetType, targetRecordId) {
     state.commentsByTarget[targetKey] = (data?.comments || []).map(normalizeComment);
     state.commentCounts[targetKey] = state.commentsByTarget[targetKey].length;
     state.commentSummarySignature = signatureOf(state.commentCounts);
+    loaded = true;
   } catch (error) {
     if (!state.commentsByTarget[targetKey]) {
       state.commentsByTarget[targetKey] = [];
     }
   } finally {
     state.loadingCommentTargets.delete(targetKey);
-    if (targetType === "idea") {
-      const card = elements.ideasList.querySelector(`.idea-card[data-idea-id="${CSS.escape(targetRecordId)}"]`);
-      const idea = state.ideas.find((item) => item.id === targetRecordId);
-      if (card && idea) patchIdeaCard(card, idea);
-    } else {
-      renderProjects();
-    }
-    updateVisibleCommentCounts();
+    patchCommentTargetUI(targetType, targetRecordId);
   }
+  return loaded;
 }
 
 async function likeComment(commentId, targetKey) {
@@ -1162,25 +1193,14 @@ async function submitComment(targetType, targetRecordId, form) {
     if (!response.ok) {
       throw new Error(detail.message || "评论发送失败");
     }
-    const nextComment = normalizeComment(detail.comment || {});
-    const nextList = [...getCommentsForTarget(targetType, targetRecordId), nextComment];
-    state.commentsByTarget[targetKey] = nextList;
-    state.commentCounts[targetKey] = nextList.length;
-    state.commentSummarySignature = signatureOf(state.commentCounts);
     if (input) input.value = "";
-    if (status) status.textContent = "";
+    const loaded = await loadCommentsForTarget(targetType, targetRecordId);
+    if (status) status.textContent = loaded ? "" : "评论已创建，列表刷新失败";
   } catch (error) {
     if (status) status.textContent = error.message || "评论发送失败";
   } finally {
     state.submittingCommentTargets.delete(targetKey);
-    if (targetType === "project") {
-      renderProjects();
-    } else {
-      const card = elements.ideasList.querySelector(`.idea-card[data-idea-id="${CSS.escape(targetRecordId)}"]`);
-      const idea = state.ideas.find((item) => item.id === targetRecordId);
-      if (card && idea) patchIdeaCard(card, idea);
-    }
-    updateVisibleCommentCounts();
+    patchCommentTargetUI(targetType, targetRecordId);
   }
 }
 

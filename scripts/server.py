@@ -220,6 +220,7 @@ def create_idea(payload, user_auth):
 
     fields = {
         "IDEA标题": payload.get("title", "").strip(),
+        "状态": "OPEN POOL",
     }
 
     if payload.get("problem"):
@@ -243,6 +244,7 @@ def create_idea_as_app(payload):
 
     fields = {
         "IDEA标题": payload.get("title", "").strip(),
+        "状态": "OPEN POOL",
     }
 
     if payload.get("problem"):
