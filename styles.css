@@ -264,6 +264,53 @@ button:disabled {
   align-self: end;
 }
 
+.status-overview-wrap {
+  margin-top: 1.1rem;
+}
+
+.status-overview {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.7rem;
+  max-width: none;
+}
+
+.status-overview-card {
+  padding: 0.9rem 0.95rem 0.82rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(183, 191, 212, 0.42);
+  background: rgba(255, 255, 255, 0.36);
+  display: grid;
+  gap: 0.4rem;
+  text-align: left;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 8px 20px rgba(112, 125, 160, 0.06);
+  transition: transform 220ms ease, border-color 220ms ease, background 220ms ease;
+}
+
+.status-overview-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(110, 107, 255, 0.34);
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.status-overview-label {
+  color: rgba(67, 68, 77, 0.4);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.status-overview-card strong {
+  color: #202229;
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .hero h1,
 .modal-head h3 {
   font-family: "Plus Jakarta Sans", "PingFang SC", system-ui, sans-serif;
@@ -424,6 +471,68 @@ button:disabled {
 
 #projectsList .signal-card {
   grid-column: 1 / -1;
+}
+
+.project-group {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 1rem;
+  scroll-margin-top: 1.5rem;
+}
+
+.project-group + .project-group {
+  margin-top: 0.8rem;
+}
+
+.project-group-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 0.25rem;
+}
+
+.project-group-kicker {
+  color: rgba(67, 68, 77, 0.28);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.project-group-head h2 {
+  margin-top: 0.3rem;
+  color: #2f3138;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.project-group-subtitle {
+  margin-top: 0.35rem;
+  color: rgba(63, 64, 71, 0.5);
+  font-size: 0.88rem;
+}
+
+.project-group-count {
+  min-width: 2.45rem;
+  height: 2.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(179, 186, 205, 0.5);
+  color: #535a67;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.project-group-grid {
+  display: grid;
+  gap: 1.45rem;
 }
 
 #ideasList {
@@ -630,6 +739,51 @@ button:disabled {
 
 .tag-meta {
   color: #a3aab6;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+  padding: 0.2rem 0.56rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.status-chip-proposal {
+  background: rgba(83, 109, 254, 0.1);
+  border-color: rgba(83, 109, 254, 0.16);
+  color: #4b5ef0;
+}
+
+.status-chip-experiment {
+  background: rgba(0, 217, 239, 0.1);
+  border-color: rgba(0, 217, 239, 0.18);
+  color: #109cb0;
+}
+
+.status-chip-terminated {
+  background: rgba(255, 103, 132, 0.1);
+  border-color: rgba(255, 103, 132, 0.16);
+  color: #d14967;
+}
+
+.status-chip-productization {
+  background: rgba(70, 199, 125, 0.11);
+  border-color: rgba(70, 199, 125, 0.16);
+  color: #228b58;
+}
+
+.status-chip-archived {
+  background: rgba(154, 160, 176, 0.12);
+  border-color: rgba(154, 160, 176, 0.18);
+  color: #677083;
 }
 
 .result-link {
@@ -1535,6 +1689,14 @@ button:disabled {
 }
 
 @media (max-width: 1100px) {
+  .status-overview {
+    grid-template-columns: repeat(5, minmax(9rem, 1fr));
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.2rem;
+    scrollbar-width: thin;
+  }
+
   .topbar {
     width: 100%;
     padding: 1rem 1rem 0;
@@ -1647,6 +1809,15 @@ button:disabled {
 
   .hero-side {
     justify-items: stretch;
+  }
+
+  .status-overview {
+    grid-template-columns: repeat(5, minmax(8.8rem, 1fr));
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.2rem;
+    max-width: none;
+    scrollbar-width: thin;
   }
 
   .top-segmented {

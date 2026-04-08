@@ -5,6 +5,7 @@ const DEFAULT_PROJECTS = {
       id: "p1",
       fields: {
         "DEMO名称": "AI 辅助创新提案系统",
+        "状态": "Experiment",
         "负责人": [{ name: "Ming" }],
         "DEMO的思路": "将创意从收集到评审自动化，缩短 60% 评审周期。",
         "解决的问题": "降低创新提案从收集到执行的转化门槛。",
@@ -32,9 +33,18 @@ const DEFAULT_IDEAS = {
 };
 
 const API_BASE = "/api";
+const PROJECT_STATUS_ORDER = ["Productization", "Experiment", "Proposal", "Terminated", "Archived"];
+const PROJECT_STATUS_META = {
+  Proposal: { label: "Proposal", subtitle: "提案阶段", className: "proposal" },
+  Experiment: { label: "Experiment", subtitle: "实验阶段", className: "experiment" },
+  Terminated: { label: "Terminated", subtitle: "终止阶段", className: "terminated" },
+  Productization: { label: "Productization", subtitle: "产品化阶段", className: "productization" },
+  Archived: { label: "Archived", subtitle: "归档阶段", className: "archived" },
+};
 const FIELD_ALIASES = {
   projectTitle: ["DEMO名称", "项目名称", "Title", "标题"],
   projectTag: ["标签", "Tag", "标签名"],
+  projectStatus: ["状态", "Status", "项目状态", "阶段"],
   ideaTag: ["标签", "Tag", "标签名", "分类", "类型"],
   ideaStatus: ["状态", "Status", "阶段", "Stage"],
   ideaCreatedAt: ["创建时间", "Created Time", "created_at"],
@@ -51,6 +61,7 @@ const FIELD_ALIASES = {
 };
 
 const EMPTY_MARKERS = new Set(["", null, undefined]);
+const TAB_QUERY_PARAM = "tab";
 
 const state = {
   guestMode: false,
@@ -95,6 +106,8 @@ const elements = {
   searchInput: document.getElementById("searchInput"),
   heroTitleLink: document.getElementById("heroTitleLink"),
   heroTitle: document.getElementById("heroTitle"),
+  projectStatusOverviewWrap: document.getElementById("projectStatusOverviewWrap"),
+  projectStatusOverview: document.getElementById("projectStatusOverview"),
   heroDescription: document.getElementById("heroDescription"),
   panelKicker: document.getElementById("panelKicker"),
   ideaModal: document.getElementById("ideaModal"),
@@ -120,6 +133,31 @@ function pickField(fields, keys) {
     if (fields[key] !== undefined && fields[key] !== null) return fields[key];
   }
   return "";
+}
+
+function normalizePoolValue(value) {
+  if (value === "projects") return "projects";
+  if (value === "ideas") return "ideas";
+  return "";
+}
+
+function getPoolFromLocation() {
+  const url = new URL(window.location.href);
+  const queryPool = normalizePoolValue(String(url.searchParams.get(TAB_QUERY_PARAM) || "").trim().toLowerCase());
+  if (queryPool) return queryPool;
+  const hashPool = normalizePoolValue(String(window.location.hash || "").replace(/^#/, "").trim().toLowerCase());
+  return hashPool || "ideas";
+}
+
+function syncPoolUrl(pool, historyMode = "replace") {
+  const normalizedPool = normalizePoolValue(pool) || "ideas";
+  const url = new URL(window.location.href);
+  url.searchParams.set(TAB_QUERY_PARAM, normalizedPool);
+  if (historyMode === "push") {
+    window.history.pushState({ pool: normalizedPool }, "", url);
+    return;
+  }
+  window.history.replaceState({ pool: normalizedPool }, "", url);
 }
 
 function escapeHtml(value) {
@@ -254,6 +292,44 @@ function normalizeProgress(value) {
     return Math.round(num * 100);
   }
   return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function normalizeProjectStatus(value) {
+  const raw = extractTextContent(value).trim().toLowerCase();
+  if (!raw) return "Proposal";
+  if (["proposal", "proposed", "提案阶段", "提案"].includes(raw)) return "Proposal";
+  if (["experiment", "experimentation", "实验阶段", "实验"].includes(raw)) return "Experiment";
+  if (["terminated", "terminate", "终止阶段", "终止"].includes(raw)) return "Terminated";
+  if (["productization", "productized", "产品化阶段", "产品化"].includes(raw)) return "Productization";
+  if (["archived", "archive", "归档阶段", "归档"].includes(raw)) return "Archived";
+  return "Proposal";
+}
+
+function getProjectStatusMeta(status) {
+  return PROJECT_STATUS_META[normalizeProjectStatus(status)] || PROJECT_STATUS_META.Proposal;
+}
+
+function getProjectStatusCounts() {
+  const counts = Object.fromEntries(PROJECT_STATUS_ORDER.map((status) => [status, 0]));
+  state.projectsTree.forEach((project) => {
+    const normalized = normalizeProjectStatus(project.status);
+    counts[normalized] = (counts[normalized] || 0) + 1;
+  });
+  return counts;
+}
+
+function renderProjectStatusOverview() {
+  if (!elements.projectStatusOverview) return;
+  const counts = getProjectStatusCounts();
+  elements.projectStatusOverview.innerHTML = PROJECT_STATUS_ORDER.map((status) => {
+    const meta = getProjectStatusMeta(status);
+    return `
+      <button class="status-overview-card" type="button" data-project-status-jump="${escapeHtml(status)}">
+        <span class="status-overview-label">${escapeHtml(meta.label)}</span>
+        <strong>${counts[status] || 0}</strong>
+      </button>
+    `;
+  }).join("");
 }
 
 function extractLink(value) {
@@ -429,6 +505,7 @@ function normalizeProjectRecord(record) {
     id: record.id,
     title: extractTextContent(pickField(fields, FIELD_ALIASES.projectTitle)).trim() || "未命名项目",
     tag: extractTextContent(pickField(fields, FIELD_ALIASES.projectTag)).trim() || "SYS-CORE",
+    status: normalizeProjectStatus(pickField(fields, FIELD_ALIASES.projectStatus)),
     problem: pickField(fields, FIELD_ALIASES.problem),
     plan: pickField(fields, FIELD_ALIASES.plan),
     owner: extractPersonName(pickField(fields, FIELD_ALIASES.owner)),
@@ -488,6 +565,28 @@ function buildProjectTree(records) {
     roots,
     childCount
   };
+}
+
+function compareProjectsByProgressDesc(a, b) {
+  const progressDiff = (Number(b?.progress) || 0) - (Number(a?.progress) || 0);
+  if (progressDiff !== 0) return progressDiff;
+
+  const titleDiff = String(a?.title || "").localeCompare(String(b?.title || ""), "zh-CN");
+  if (titleDiff !== 0) return titleDiff;
+
+  return String(a?.id || "").localeCompare(String(b?.id || ""));
+}
+
+function groupProjectsByStatus(projects) {
+  const groups = new Map(PROJECT_STATUS_ORDER.map((status) => [status, []]));
+  projects.forEach((project) => {
+    const normalized = normalizeProjectStatus(project.status);
+    if (!groups.has(normalized)) groups.set(normalized, []);
+    groups.get(normalized).push(project);
+  });
+  return PROJECT_STATUS_ORDER
+    .map((status) => ({ status, items: (groups.get(status) || []).slice().sort(compareProjectsByProgressDesc) }))
+    .filter((group) => group.items.length);
 }
 
 function normalizeIdeaRecord(record) {
@@ -746,6 +845,7 @@ function patchCommentsPanel(panel, targetType, targetRecordId) {
 }
 
 function buildProjectCardContent(project) {
+  const statusMeta = getProjectStatusMeta(project.status);
   const expanded = state.expandedProjects.has(project.id);
   const commentKey = commentTargetKey("project", project.id);
   const commentsOpen = state.expandedComments.has(commentKey);
@@ -763,6 +863,7 @@ function buildProjectCardContent(project) {
           <div class="child-title">${escapeHtml(child.title)}</div>
           <div class="child-tags">
             <span class="tag-signal">${escapeHtml(child.tag || "SYS-CORE")}</span>
+            <span class="status-chip status-chip-${escapeHtml(getProjectStatusMeta(child.status).className)}">${escapeHtml(getProjectStatusMeta(child.status).label)}</span>
             <span class="tag-meta">ETA · ${escapeHtml(child.expectedDate)}</span>
           </div>
         </div>
@@ -808,6 +909,7 @@ function buildProjectCardContent(project) {
         </div>
         <div class="project-tags">
           <span class="tag-signal">${escapeHtml(project.tag || "SYS-CORE")}</span>
+          <span class="status-chip status-chip-${escapeHtml(statusMeta.className)}">${escapeHtml(statusMeta.label)}</span>
           <span class="tag-meta">ETA · ${escapeHtml(project.expectedDate)}</span>
           ${resultMarkup}
         </div>
@@ -871,10 +973,11 @@ function patchProjectCard(card, project, index) {
 function renderProjects() {
   const filteredProjects = state.projectsTree.filter((project) => matchesSearch([
     project.title,
+    project.status,
     project.problem,
     project.plan,
     project.owner,
-    ...project.children.flatMap((child) => [child.title, child.problem, child.plan, child.owner])
+    ...project.children.flatMap((child) => [child.title, child.status, child.problem, child.plan, child.owner])
   ]));
 
   if (!filteredProjects.length) {
@@ -882,43 +985,64 @@ function renderProjects() {
     return;
   }
 
-  const emptyState = elements.projectsList.querySelector(".empty-state");
-  if (emptyState) emptyState.remove();
-
   const existingCards = new Map(
     Array.from(elements.projectsList.querySelectorAll(".project-card[data-project-id]"))
       .map((card) => [card.dataset.projectId, card])
   );
+  const groups = groupProjectsByStatus(filteredProjects);
+  const fragment = document.createDocumentFragment();
+  let projectIndex = 0;
 
-  let previousCard = null;
-  filteredProjects.forEach((project, index) => {
-    let card = existingCards.get(project.id);
-    if (!card) {
-      card = createProjectCardElement(project, index);
-    } else {
-      existingCards.delete(project.id);
-    }
+  groups.forEach((group) => {
+    const meta = getProjectStatusMeta(group.status);
+    const section = document.createElement("section");
+    section.className = "project-group";
+    section.id = `project-group-${group.status}`;
+    section.dataset.projectStatus = group.status;
+    section.innerHTML = `
+      <div class="project-group-head">
+        <div>
+          <div class="project-group-kicker">Project Status</div>
+          <h2>${escapeHtml(meta.label)}</h2>
+          <div class="project-group-subtitle">${escapeHtml(meta.subtitle)}</div>
+        </div>
+        <div class="project-group-count">${group.items.length}</div>
+      </div>
+    `;
+    const grid = document.createElement("div");
+    grid.className = "project-group-grid";
 
-    patchProjectCard(card, project, index);
-
-    if (!card.isConnected) {
-      if (previousCard?.nextSibling) {
-        elements.projectsList.insertBefore(card, previousCard.nextSibling);
+    group.items.forEach((project) => {
+      let card = existingCards.get(project.id);
+      if (!card) {
+        card = createProjectCardElement(project, projectIndex);
       } else {
-        elements.projectsList.appendChild(card);
+        existingCards.delete(project.id);
       }
-    } else if (!previousCard) {
-      if (elements.projectsList.firstElementChild !== card) {
-        elements.projectsList.insertBefore(card, elements.projectsList.firstElementChild);
-      }
-    } else if (previousCard.nextElementSibling !== card) {
-      elements.projectsList.insertBefore(card, previousCard.nextElementSibling);
-    }
+      patchProjectCard(card, project, projectIndex);
+      grid.appendChild(card);
+      projectIndex += 1;
+    });
 
-    previousCard = card;
+    section.appendChild(grid);
+    fragment.appendChild(section);
   });
 
+  elements.projectsList.innerHTML = "";
+  elements.projectsList.appendChild(fragment);
   existingCards.forEach((card) => card.remove());
+}
+
+function scrollToProjectStatusGroup(status) {
+  setActivePool("projects");
+  window.requestAnimationFrame(() => {
+    const target = document.querySelector(`#project-group-${CSS.escape(status)}`);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    elements.projectsView?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function getFilteredIdeas() {
@@ -1258,6 +1382,7 @@ function renderStats() {
   elements.childCount.textContent = String(state.childCount).padStart(2, "0");
   elements.ideaCount.textContent = String(state.ideas.length).padStart(2, "0");
   elements.momentum.textContent = calcSignalIndex(state.projectsTree.length, state.childCount, state.ideas.length);
+  renderProjectStatusOverview();
 }
 
 function renderAll() {
@@ -1270,21 +1395,26 @@ function signatureOf(value) {
   return JSON.stringify(stableObject(value));
 }
 
-function setActivePool(pool) {
-  state.activePool = pool;
-  elements.projectsView.classList.toggle("active", pool === "projects");
-  elements.ideasView.classList.toggle("active", pool === "ideas");
-  elements.poolTabs.style.setProperty("--active-index", pool === "ideas" ? "0" : "1");
+function setActivePool(pool, options = {}) {
+  const normalizedPool = normalizePoolValue(pool) || "ideas";
+  const { updateUrl = true, historyMode = "replace" } = options;
+  state.activePool = normalizedPool;
+  elements.projectsView.classList.toggle("active", normalizedPool === "projects");
+  elements.ideasView.classList.toggle("active", normalizedPool === "ideas");
+  elements.poolTabs.style.setProperty("--active-index", normalizedPool === "ideas" ? "0" : "1");
   elements.poolTabs.querySelectorAll(".segmented-btn").forEach((button) => {
-    button.classList.toggle("active", button.dataset.pool === pool);
+    button.classList.toggle("active", button.dataset.pool === normalizedPool);
   });
-  elements.openIdeaModalBtn.classList.toggle("visible", pool === "ideas");
-  elements.heroTitle.textContent = pool === "projects" ? "Grow Lab" : "Seed Hub";
+  elements.openIdeaModalBtn.classList.toggle("visible", normalizedPool === "ideas");
+  if (elements.projectStatusOverviewWrap) {
+    elements.projectStatusOverviewWrap.hidden = normalizedPool !== "projects";
+  }
+  elements.heroTitle.textContent = normalizedPool === "projects" ? "Grow Lab" : "Seed Hub";
   if (elements.heroKicker) {
     elements.heroKicker.textContent = "";
   }
   if (elements.heroDescription) {
-    elements.heroDescription.textContent = pool === "projects"
+    elements.heroDescription.textContent = normalizedPool === "projects"
     ? "Projects 以行动视角呈现父节点任务。每个模块都把问题、思路、负责人和进度压缩进同一块操作卡，展开后再进入子任务层。"
     : "Ideas 作为概念池存在，强调 problem space 与 approach。提交行为不离开当前页面，直接写回飞书。";
   }
@@ -1292,6 +1422,7 @@ function setActivePool(pool) {
     elements.panelKicker.textContent = "";
   }
   updateTitleJump();
+  if (updateUrl) syncPoolUrl(normalizedPool, historyMode);
 }
 
 function openIdeaModal() {
@@ -1441,7 +1572,17 @@ function bindEvents() {
   elements.poolTabs?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pool]");
     if (!button) return;
-    setActivePool(button.dataset.pool);
+    setActivePool(button.dataset.pool, { updateUrl: true, historyMode: "push" });
+  });
+
+  elements.projectStatusOverview?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-project-status-jump]");
+    if (!button) return;
+    scrollToProjectStatusGroup(button.dataset.projectStatusJump);
+  });
+
+  window.addEventListener("popstate", () => {
+    setActivePool(getPoolFromLocation(), { updateUrl: false });
   });
 
   elements.searchInput?.addEventListener("input", (event) => {
@@ -1709,10 +1850,7 @@ function bindEvents() {
 
 try { updateToday(); } catch (error) { console.error("updateToday failed", error); }
 try { bindEvents(); } catch (error) { console.error("bindEvents failed", error); }
-try { setActivePool("ideas"); } catch (error) { console.error("setActivePool failed", error); }
+try { setActivePool(getPoolFromLocation(), { updateUrl: true, historyMode: "replace" }); } catch (error) { console.error("setActivePool failed", error); }
 Promise.resolve().then(() => loadData()).catch((error) => console.error("loadData failed", error));
 Promise.resolve().then(() => loadCommentSummary()).catch((error) => console.error("loadCommentSummary failed", error));
 Promise.resolve().then(() => loadMe()).catch((error) => console.error("loadMe failed", error));
-setInterval(() => {
-  loadCommentSummary().catch((error) => console.error("interval loadCommentSummary failed", error));
-}, 30000);
