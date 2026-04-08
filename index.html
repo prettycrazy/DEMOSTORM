@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260329j" />
+    <link rel="stylesheet" href="styles.css?v=20260408b" />
 </head>
 <body>
   <div class="bg-orb bg-orb-a" aria-hidden="true"></div>
@@ -92,6 +92,7 @@
 
       <form class="idea-form" id="ideaForm">
         <input type="hidden" id="ideaOwner" value="" />
+        <datalist id="ideaTagOptions"></datalist>
         <div class="submit-mode-panel" id="submitModePanel">
           <div class="submit-mode-row">
             <div class="submit-mode-label">Submit Via</div>
@@ -108,6 +109,12 @@
         <div class="form-row">
           <label for="ideaTitle">Title</label>
           <input type="text" id="ideaTitle" placeholder="What is this idea called?" required />
+        </div>
+        <div class="form-row">
+          <label for="ideaTag">Category</label>
+          <input type="text" id="ideaTag" list="ideaTagOptions" placeholder="Choose an existing category or create a new one" />
+          <div class="form-row-helper">Pick an existing category below or type a new one.</div>
+          <div class="tag-picker" id="ideaTagSuggestions"></div>
         </div>
         <div class="form-row">
           <label for="ideaProblem">Problem</label>
@@ -130,6 +137,6 @@
     <div class="footer-right">Projects and Ideas share one motion system</div>
   </footer>
 
-    <script src="app.js?v=20260408a"></script>
+    <script src="app.js?v=20260408b"></script>
   </body>
 </html>

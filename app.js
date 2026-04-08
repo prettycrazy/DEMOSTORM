@@ -58,6 +58,7 @@ const state = {
   submitMode: "auth",
   activePool: "ideas",
   searchQuery: "",
+  ideaCategoryOptions: [],
   likingIdeaIds: new Set(),
   likingCommentIds: new Set(),
   loadingCommentTargets: new Set(),
@@ -102,6 +103,9 @@ const elements = {
   closeIdeaModalBg: document.getElementById("closeIdeaModalBg"),
   ideaForm: document.getElementById("ideaForm"),
   ideaTitleInput: document.getElementById("ideaTitle"),
+  ideaTagInput: document.getElementById("ideaTag"),
+  ideaTagOptions: document.getElementById("ideaTagOptions"),
+  ideaTagSuggestions: document.getElementById("ideaTagSuggestions"),
   ideaProblemInput: document.getElementById("ideaProblem"),
   ideaPlanInput: document.getElementById("ideaPlan"),
   ideaOwnerInput: document.getElementById("ideaOwner"),
@@ -337,6 +341,30 @@ function normalizeSubmitMode(preferredMode) {
     return canUseGuestMode() ? "guest" : "auth";
   }
   return "auth";
+}
+
+function collectIdeaCategoryOptions(ideas) {
+  const categories = new Set();
+  ideas.forEach((idea) => {
+    const tag = String(idea?.tag || "").trim();
+    if (tag) categories.add(tag);
+  });
+  return Array.from(categories).sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function renderIdeaCategoryOptions() {
+  if (elements.ideaTagOptions) {
+    elements.ideaTagOptions.innerHTML = state.ideaCategoryOptions
+      .map((tag) => `<option value="${escapeHtml(tag)}"></option>`)
+      .join("");
+  }
+  if (elements.ideaTagSuggestions) {
+    elements.ideaTagSuggestions.innerHTML = state.ideaCategoryOptions.length
+      ? state.ideaCategoryOptions.map((tag) => `
+          <button class="tag-picker-chip" type="button" data-idea-tag-option="${escapeHtml(tag)}">${escapeHtml(tag)}</button>
+        `).join("")
+      : '<div class="tag-picker-empty">No categories yet. Type a new one.</div>';
+  }
 }
 
 function resolveActionSubmitMode(preferredMode) {
@@ -1308,6 +1336,7 @@ async function loadData() {
     state.projectsTree = nextProjects;
     state.childCount = nextChildCount;
     state.ideas = nextIdeas;
+    state.ideaCategoryOptions = collectIdeaCategoryOptions(nextIdeas);
 
     if (projectsChanged) {
       state.projectSignature = nextProjectSignature;
@@ -1320,6 +1349,7 @@ async function loadData() {
     if (projectsChanged || ideasChanged) {
       renderStats();
     }
+    renderIdeaCategoryOptions();
 
     updateMeta(projectsData.updated_at || ideasData.updated_at);
   } catch (error) {
@@ -1330,9 +1360,11 @@ async function loadData() {
       .map((record, index) => ({ ...record, sourceOrder: index }))
       .map(normalizeIdeaRecord)
       .sort(compareIdeasByCreatedAtDesc);
+    state.ideaCategoryOptions = collectIdeaCategoryOptions(state.ideas);
     state.projectSignature = signatureOf({ roots: state.projectsTree, childCount: state.childCount });
     state.ideaSignature = signatureOf(state.ideas);
     renderAll();
+    renderIdeaCategoryOptions();
     updateMeta(DEFAULT_PROJECTS.updated_at);
   }
 }
@@ -1612,6 +1644,13 @@ function bindEvents() {
     renderSubmitMode();
   });
 
+  elements.ideaTagSuggestions?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-idea-tag-option]");
+    if (!button || !elements.ideaTagInput) return;
+    elements.ideaTagInput.value = button.dataset.ideaTagOption || "";
+    elements.ideaTagInput.focus();
+  });
+
   elements.ideaForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     elements.ideaStatus.textContent = "Submitting...";
@@ -1630,6 +1669,7 @@ function bindEvents() {
 
     const payload = {
       title: elements.ideaTitleInput.value.trim(),
+      tag: elements.ideaTagInput.value.trim(),
       problem: elements.ideaProblemInput.value.trim(),
       plan: elements.ideaPlanInput.value.trim(),
       owner_open_id: elements.ideaOwnerInput.value.trim(),

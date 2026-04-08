@@ -139,6 +139,7 @@ module.exports = async (req, res) => {
         'IDEA标题': String(payload.title).trim(),
         '状态': 'OPEN POOL',
       }
+      if (payload.tag) fields['标签'] = String(payload.tag).trim()
       if (payload.problem) fields['解决的问题（必填）'] = String(payload.problem).trim()
       if (payload.plan) fields['demo的思路（非必填）'] = String(payload.plan).trim()
 

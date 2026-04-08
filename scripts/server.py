@@ -224,6 +224,8 @@ def create_idea(payload, user_auth):
         "状态": "OPEN POOL",
     }
 
+    if payload.get("tag"):
+        fields["标签"] = payload["tag"].strip()
     if payload.get("problem"):
         fields["解决的问题（必填）"] = payload["problem"].strip()
     if payload.get("plan"):
@@ -248,6 +250,8 @@ def create_idea_as_app(payload):
         "状态": "OPEN POOL",
     }
 
+    if payload.get("tag"):
+        fields["标签"] = payload["tag"].strip()
     if payload.get("problem"):
         fields["解决的问题（必填）"] = payload["problem"].strip()
     if payload.get("plan"):
