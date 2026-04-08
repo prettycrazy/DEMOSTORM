@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
       json(res, 500, { message: data.msg || 'Feishu API Error' })
       return
     }
-    json(res, 200, { updated_at: new Date().toISOString(), records: (data.data?.items || []).map(item => ({ id: item.record_id, fields: item.fields })) })
+    json(res, 200, { updated_at: new Date().toISOString(), records: (data.data?.items || []).map(item => ({ id: item.record_id, created_time: item.created_time || '', fields: item.fields })) })
   } catch (error) {
     json(res, error.status || 500, { message: error.message })
   }

@@ -71,6 +71,7 @@ def fetch_records(app_token, table_id, access_token, page_size=200, text_field_a
         for item in items:
             records.append({
                 "id": item.get("record_id", ""),
+                "created_time": item.get("created_time", ""),
                 "fields": item.get("fields", {})
             })
         if not data.get("has_more"):

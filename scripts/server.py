@@ -198,6 +198,7 @@ def fetch_records(table_id, text_field_as_array=False):
         for item in data.get("items", []):
             records.append({
                 "id": item.get("record_id", ""),
+                "created_time": item.get("created_time", ""),
                 "fields": item.get("fields", {})
             })
         if not data.get("has_more"):

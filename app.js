@@ -19,6 +19,7 @@ const DEFAULT_IDEAS = {
   records: [
     {
       id: "i1",
+      created_time: "2026-03-25T08:15:00+08:00",
       fields: {
         "IDEA标题": "创新挑战赛小程序",
         "状态": "OPEN POOL",
@@ -36,6 +37,7 @@ const FIELD_ALIASES = {
   projectTag: ["标签", "Tag", "标签名"],
   ideaTag: ["标签", "Tag", "标签名", "分类", "类型"],
   ideaStatus: ["状态", "Status", "阶段", "Stage"],
+  ideaCreatedAt: ["创建时间", "Created Time", "created_at"],
   ideaTitle: ["IDEA标题", "Idea", "Title", "标题"],
   owner: ["负责人", "Owner", "Owner/Lead", "Lead"],
   proposer: ["填写人", "提出人", "Owner", "Creator"],
@@ -54,7 +56,7 @@ const state = {
   guestMode: false,
   authUser: null,
   submitMode: "auth",
-  activePool: "projects",
+  activePool: "ideas",
   searchQuery: "",
   likingIdeaIds: new Set(),
   likingCommentIds: new Set(),
@@ -464,6 +466,8 @@ function normalizeIdeaRecord(record) {
   const fields = record.fields || {};
   return {
     id: record.id,
+    createdAt: pickField(fields, FIELD_ALIASES.ideaCreatedAt) || record.created_time || record.createdAt || "",
+    sourceOrder: Number.isFinite(record.sourceOrder) ? record.sourceOrder : -1,
     title: extractTextContent(pickField(fields, FIELD_ALIASES.ideaTitle)).trim() || "未命名 Idea",
     tag: extractTextContent(pickField(fields, FIELD_ALIASES.ideaTag)).trim() || "CONCEPT",
     status: extractTextContent(pickField(fields, FIELD_ALIASES.ideaStatus)).trim() || "OPEN POOL",
@@ -474,8 +478,25 @@ function normalizeIdeaRecord(record) {
   };
 }
 
-function compareById(a, b) {
-  return String(a?.id || "").localeCompare(String(b?.id || ""));
+function parseSortableTime(value) {
+  if (!value) return 0;
+  const raw = String(value).trim();
+  if (/^\d+$/.test(raw)) {
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric)) {
+      return numeric > 1e12 ? numeric : numeric * 1000;
+    }
+  }
+  const timestamp = new Date(raw).valueOf();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function compareIdeasByCreatedAtDesc(a, b) {
+  const timeDiff = parseSortableTime(b?.createdAt) - parseSortableTime(a?.createdAt);
+  if (timeDiff !== 0) return timeDiff;
+  const idDiff = String(b?.id || "").localeCompare(String(a?.id || ""));
+  if (idDiff !== 0) return idDiff;
+  return Number(b?.sourceOrder || 0) - Number(a?.sourceOrder || 0);
 }
 
 function stableObject(value) {
@@ -1225,7 +1246,7 @@ function setActivePool(pool) {
   state.activePool = pool;
   elements.projectsView.classList.toggle("active", pool === "projects");
   elements.ideasView.classList.toggle("active", pool === "ideas");
-  elements.poolTabs.style.setProperty("--active-index", pool === "projects" ? "0" : "1");
+  elements.poolTabs.style.setProperty("--active-index", pool === "ideas" ? "0" : "1");
   elements.poolTabs.querySelectorAll(".segmented-btn").forEach((button) => {
     button.classList.toggle("active", button.dataset.pool === pool);
   });
@@ -1273,9 +1294,10 @@ async function loadData() {
     const nextProjects = projectTree.roots;
     const nextChildCount = projectTree.childCount;
     const nextIdeas = (ideasData.records || [])
+      .map((record, index) => ({ ...record, sourceOrder: index }))
       .filter((record) => hasMeaningfulFields(record.fields))
       .map(normalizeIdeaRecord)
-      .sort(compareById)
+      .sort(compareIdeasByCreatedAtDesc)
       .filter((idea) => idea.title && idea.title !== "未命名 Idea");
 
     const nextProjectSignature = signatureOf({ roots: nextProjects, childCount: nextChildCount });
@@ -1304,7 +1326,10 @@ async function loadData() {
     const projectTree = buildProjectTree(DEFAULT_PROJECTS.records);
     state.projectsTree = projectTree.roots;
     state.childCount = projectTree.childCount;
-    state.ideas = DEFAULT_IDEAS.records.map(normalizeIdeaRecord);
+    state.ideas = DEFAULT_IDEAS.records
+      .map((record, index) => ({ ...record, sourceOrder: index }))
+      .map(normalizeIdeaRecord)
+      .sort(compareIdeasByCreatedAtDesc);
     state.projectSignature = signatureOf({ roots: state.projectsTree, childCount: state.childCount });
     state.ideaSignature = signatureOf(state.ideas);
     renderAll();
@@ -1644,11 +1669,10 @@ function bindEvents() {
 
 try { updateToday(); } catch (error) { console.error("updateToday failed", error); }
 try { bindEvents(); } catch (error) { console.error("bindEvents failed", error); }
-try { setActivePool("projects"); } catch (error) { console.error("setActivePool failed", error); }
+try { setActivePool("ideas"); } catch (error) { console.error("setActivePool failed", error); }
 Promise.resolve().then(() => loadData()).catch((error) => console.error("loadData failed", error));
 Promise.resolve().then(() => loadCommentSummary()).catch((error) => console.error("loadCommentSummary failed", error));
 Promise.resolve().then(() => loadMe()).catch((error) => console.error("loadMe failed", error));
 setInterval(() => {
-  loadData().catch((error) => console.error("interval loadData failed", error));
   loadCommentSummary().catch((error) => console.error("interval loadCommentSummary failed", error));
 }, 30000);
