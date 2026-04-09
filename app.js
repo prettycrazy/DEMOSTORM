@@ -62,6 +62,7 @@ const FIELD_ALIASES = {
 
 const EMPTY_MARKERS = new Set(["", null, undefined]);
 const TAB_QUERY_PARAM = "tab";
+const IDEA_TWO_COLUMN_BREAKPOINT = 1100;
 
 const state = {
   guestMode: false,
@@ -1114,6 +1115,17 @@ function createIdeaCardElement(idea) {
   return template.content.firstElementChild;
 }
 
+function getIdeaColumnCount() {
+  return window.innerWidth <= IDEA_TWO_COLUMN_BREAKPOINT ? 1 : 2;
+}
+
+function createIdeaColumnElement(index) {
+  const column = document.createElement("div");
+  column.className = "ideas-column";
+  column.dataset.ideaColumn = String(index);
+  return column;
+}
+
 function patchIdeaCard(card, idea) {
   if (!card || !idea) return;
   card.dataset.ideaId = idea.id;
@@ -1169,9 +1181,10 @@ function renderIdeas() {
     Array.from(elements.ideasList.querySelectorAll(".idea-card[data-idea-id]"))
       .map((card) => [card.dataset.ideaId, card])
   );
+  const columnCount = getIdeaColumnCount();
+  const columns = Array.from({ length: columnCount }, (_, index) => createIdeaColumnElement(index));
 
-  let previousCard = null;
-  filteredIdeas.forEach((idea) => {
+  filteredIdeas.forEach((idea, index) => {
     let card = existingCards.get(idea.id);
     if (!card) {
       card = createIdeaCardElement(idea);
@@ -1184,24 +1197,11 @@ function renderIdeas() {
       patchIdeaCard(card, idea);
       card.dataset.renderSignature = nextRenderSignature;
     }
-
-    if (!card.isConnected) {
-      if (previousCard?.nextSibling) {
-        elements.ideasList.insertBefore(card, previousCard.nextSibling);
-      } else {
-        elements.ideasList.appendChild(card);
-      }
-    } else if (!previousCard) {
-      if (elements.ideasList.firstElementChild !== card) {
-        elements.ideasList.insertBefore(card, elements.ideasList.firstElementChild);
-      }
-    } else if (previousCard.nextElementSibling !== card) {
-      elements.ideasList.insertBefore(card, previousCard.nextElementSibling);
-    }
-
-    previousCard = card;
+    columns[index % columnCount].appendChild(card);
   });
 
+  elements.ideasList.innerHTML = "";
+  columns.forEach((column) => elements.ideasList.appendChild(column));
   existingCards.forEach((card) => card.remove());
 }
 
@@ -1583,6 +1583,14 @@ function bindEvents() {
 
   window.addEventListener("popstate", () => {
     setActivePool(getPoolFromLocation(), { updateUrl: false });
+  });
+
+  let lastIdeaColumnCount = getIdeaColumnCount();
+  window.addEventListener("resize", () => {
+    const nextIdeaColumnCount = getIdeaColumnCount();
+    if (nextIdeaColumnCount === lastIdeaColumnCount) return;
+    lastIdeaColumnCount = nextIdeaColumnCount;
+    renderIdeas();
   });
 
   elements.searchInput?.addEventListener("input", (event) => {

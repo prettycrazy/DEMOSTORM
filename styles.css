@@ -536,16 +536,22 @@ button:disabled {
 }
 
 #ideasList {
-  column-count: 2;
-  column-gap: 1.45rem;
-  display: block;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 1.45rem;
+}
+
+.ideas-column {
+  display: grid;
+  align-content: start;
+  gap: 1.45rem;
 }
 
 #ideasList .signal-card {
-  display: inline-block;
+  display: block;
   width: 100%;
-  margin: 0 0 1.45rem;
-  break-inside: avoid;
+  margin: 0;
 }
 
 .signal-card {
@@ -1720,7 +1726,7 @@ button:disabled {
   }
 
   #ideasList {
-    column-count: 1;
+    grid-template-columns: 1fr;
   }
 }
 
