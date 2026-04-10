@@ -235,6 +235,28 @@ function extractTextContent(value) {
   return "";
 }
 
+function extractRecordId(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value).trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const candidate = extractRecordId(item);
+      if (candidate) return candidate;
+    }
+    return "";
+  }
+  if (typeof value !== "object") return "";
+
+  if (Array.isArray(value.record_ids) && value.record_ids.length) {
+    const first = String(value.record_ids[0] || "").trim();
+    if (first) return first;
+  }
+  if (typeof value.record_id === "string" && value.record_id.trim()) return value.record_id.trim();
+  if (typeof value.id === "string" && value.id.trim()) return value.id.trim();
+  return extractTextContent(value).trim();
+}
+
 function collectRichSegments(value) {
   if (value === null || value === undefined || value === "") return [];
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -317,7 +339,24 @@ function formatDate(value) {
 }
 
 function normalizeProgress(value) {
-  const num = Number(value);
+  if (Array.isArray(value) && value.length) {
+    for (const item of value) {
+      const parsed = normalizeProgress(item);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
+  }
+
+  if (value && typeof value === "object") {
+    const candidate = [value.progress, value.value, value.number, value.num, value.text]
+      .find((item) => item !== undefined && item !== null);
+    if (candidate !== undefined) return normalizeProgress(candidate);
+  }
+
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  const match = raw.match(/-?\d+(\.\d+)?/);
+  const num = Number(match ? match[0] : raw);
   if (!Number.isFinite(num)) return 0;
   if (num >= 0 && num <= 1) {
     return Math.round(num * 100);
@@ -654,11 +693,11 @@ function normalizeProgressRecord(record) {
   const fields = record.fields || {};
   return {
     id: record.id || "",
-    targetRecordId: extractTextContent(fields["目标记录ID"]).trim(),
-    progress: normalizeProgress(fields["进度"]),
-    currentUpdate: fields["当前进展"] || "",
-    nextStep: fields["下一步计划"] || "",
-    materials: fields["相关材料"] || "",
+    targetRecordId: extractRecordId(fields["目标记录ID"]),
+    progress: normalizeProgress(pickField(fields, FIELD_ALIASES.progress)),
+    currentUpdate: pickField(fields, FIELD_ALIASES.projectCurrentUpdate),
+    nextStep: pickField(fields, FIELD_ALIASES.projectNextStep),
+    materials: pickField(fields, FIELD_ALIASES.projectMaterials),
     createdAt: record.created_time || record.createdAt || "",
   };
 }
