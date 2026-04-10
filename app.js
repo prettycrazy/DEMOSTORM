@@ -45,6 +45,9 @@ const FIELD_ALIASES = {
   projectTitle: ["DEMO名称", "项目名称", "Title", "标题"],
   projectTag: ["标签", "Tag", "标签名"],
   projectStatus: ["状态", "Status", "项目状态", "阶段"],
+  projectCurrentUpdate: ["当前进展", "当前进展内容描述", "进展更新", "Latest Update", "Current Update"],
+  projectNextStep: ["下一步计划", "Next Step", "Next Action"],
+  projectMaterials: ["相关材料", "Materials", "Reference", "参考材料"],
   ideaTag: ["标签", "Tag", "标签名", "分类", "类型"],
   ideaStatus: ["状态", "Status", "阶段", "Stage"],
   ideaCreatedAt: ["创建时间", "Created Time", "created_at"],
@@ -71,6 +74,8 @@ const state = {
   activePool: "ideas",
   searchQuery: "",
   ideaCategoryOptions: [],
+  activeProjectUpdateId: "",
+  activeProgressTimelineId: "",
   likingIdeaIds: new Set(),
   likingCommentIds: new Set(),
   loadingCommentTargets: new Set(),
@@ -84,7 +89,10 @@ const state = {
   commentSummarySignature: "",
   childCount: 0,
   projectSignature: "",
+  progressSignature: "",
   ideaSignature: "",
+  latestProgressByTarget: {},
+  progressRecordsByTarget: {},
   projectsTableUrl: "https://lq9n5lvfn2i.feishu.cn/wiki/CZBWwReNHic9m4kUV95cWKJwnRe?table=tblvIoMdw5nslGsy&view=vewRk0ObQk",
   ideasTableUrl: "https://lq9n5lvfn2i.feishu.cn/wiki/CZBWwReNHic9m4kUV95cWKJwnRe?table=tblPk1wR2xYSztdL&view=vewCeUkPfz"
 };
@@ -124,6 +132,28 @@ const elements = {
   ideaPlanInput: document.getElementById("ideaPlan"),
   ideaOwnerInput: document.getElementById("ideaOwner"),
   ideaStatus: document.getElementById("ideaStatus"),
+  projectUpdateModal: document.getElementById("projectUpdateModal"),
+  closeProjectUpdateModalBtn: document.getElementById("closeProjectUpdateModalBtn"),
+  closeProjectUpdateModalBg: document.getElementById("closeProjectUpdateModalBg"),
+  projectUpdateTitle: document.getElementById("projectUpdateTitle"),
+  projectUpdateSubtitle: document.getElementById("projectUpdateSubtitle"),
+  projectUpdateAuthGate: document.getElementById("projectUpdateAuthGate"),
+  projectUpdateForm: document.getElementById("projectUpdateForm"),
+  projectUpdateRecordId: document.getElementById("projectUpdateRecordId"),
+  projectUpdateProgress: document.getElementById("projectUpdateProgress"),
+  projectUpdateProgressValue: document.getElementById("projectUpdateProgressValue"),
+  projectUpdateCurrent: document.getElementById("projectUpdateCurrent"),
+  projectUpdateNext: document.getElementById("projectUpdateNext"),
+  projectUpdateMaterials: document.getElementById("projectUpdateMaterials"),
+  projectUpdateStatus: document.getElementById("projectUpdateStatus"),
+  projectUpdateLoginBtn: document.getElementById("projectUpdateLoginBtn"),
+  progressTimelineModal: document.getElementById("progressTimelineModal"),
+  closeProgressTimelineModalBtn: document.getElementById("closeProgressTimelineModalBtn"),
+  closeProgressTimelineModalBg: document.getElementById("closeProgressTimelineModalBg"),
+  progressTimelineTitle: document.getElementById("progressTimelineTitle"),
+  progressTimelineList: document.getElementById("progressTimelineList"),
+  progressTimelineMeta: document.getElementById("progressTimelineMeta"),
+  progressTimelineUpdateBtn: document.getElementById("progressTimelineUpdateBtn"),
   submitModeToggle: document.getElementById("submitModeToggle"),
   submitModeMeta: document.getElementById("submitModeMeta"),
   modalLoginBtn: document.getElementById("modalLoginBtn")
@@ -512,6 +542,9 @@ function normalizeProjectRecord(record) {
     owner: extractPersonName(pickField(fields, FIELD_ALIASES.owner)),
     expectedDate: formatDate(pickField(fields, FIELD_ALIASES.expectedDate)),
     progress: normalizeProgress(pickField(fields, FIELD_ALIASES.progress)),
+    currentUpdate: pickField(fields, FIELD_ALIASES.projectCurrentUpdate),
+    nextStep: pickField(fields, FIELD_ALIASES.projectNextStep),
+    materials: pickField(fields, FIELD_ALIASES.projectMaterials),
     resultLink: extractLink(pickField(fields, FIELD_ALIASES.resultLink)),
     parentId: extractParentId(pickField(fields, FIELD_ALIASES.parent)),
     children: []
@@ -568,6 +601,17 @@ function buildProjectTree(records) {
   };
 }
 
+function findProjectRecordById(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return null;
+  for (const project of state.projectsTree) {
+    if (project.id === targetId) return project;
+    const child = project.children.find((item) => item.id === targetId);
+    if (child) return child;
+  }
+  return null;
+}
+
 function compareProjectsByProgressDesc(a, b) {
   const progressDiff = (Number(b?.progress) || 0) - (Number(a?.progress) || 0);
   if (progressDiff !== 0) return progressDiff;
@@ -604,6 +648,84 @@ function normalizeIdeaRecord(record) {
     owner: extractPersonName(pickField(fields, FIELD_ALIASES.proposer)),
     likes: normalizeLikes(pickField(fields, FIELD_ALIASES.likes))
   };
+}
+
+function normalizeProgressRecord(record) {
+  const fields = record.fields || {};
+  return {
+    id: record.id || "",
+    targetRecordId: extractTextContent(fields["目标记录ID"]).trim(),
+    progress: normalizeProgress(fields["进度"]),
+    currentUpdate: fields["当前进展"] || "",
+    nextStep: fields["下一步计划"] || "",
+    materials: fields["相关材料"] || "",
+    createdAt: record.created_time || record.createdAt || "",
+  };
+}
+
+function compareProgressRecordsDesc(a, b) {
+  const timeDiff = String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""));
+  if (timeDiff !== 0) return timeDiff;
+  return String(b?.id || "").localeCompare(String(a?.id || ""));
+}
+
+function buildProgressHistoryMap(records) {
+  const grouped = {};
+  records
+    .map(normalizeProgressRecord)
+    .filter((record) => record.targetRecordId)
+    .sort(compareProgressRecordsDesc)
+    .forEach((record) => {
+      if (!grouped[record.targetRecordId]) grouped[record.targetRecordId] = [];
+      grouped[record.targetRecordId].push(record);
+    });
+  return grouped;
+}
+
+function buildLatestProgressMap(records) {
+  const latest = {};
+  Object.entries(records || {}).forEach(([targetRecordId, entries]) => {
+    if (entries?.length) latest[targetRecordId] = entries[0];
+  });
+  return latest;
+}
+
+function getProgressRecordsForTarget(targetRecordId) {
+  return state.progressRecordsByTarget[String(targetRecordId || "").trim()] || [];
+}
+
+function formatProgressTime(value) {
+  return formatCommentTime(value);
+}
+
+function applyLatestProgressToProjects(projects, latestByTarget) {
+  return projects.map((project) => {
+    const latest = latestByTarget[project.id];
+    const nextChildren = project.children.map((child) => {
+      const childLatest = latestByTarget[child.id];
+      if (!childLatest) return child;
+      return {
+        ...child,
+        progress: childLatest.progress,
+        currentUpdate: childLatest.currentUpdate,
+        nextStep: childLatest.nextStep,
+        materials: childLatest.materials,
+      };
+    });
+
+    if (!latest && nextChildren === project.children) {
+      return project;
+    }
+
+    return {
+      ...project,
+      children: nextChildren,
+      progress: latest ? latest.progress : project.progress,
+      currentUpdate: latest ? latest.currentUpdate : project.currentUpdate,
+      nextStep: latest ? latest.nextStep : project.nextStep,
+      materials: latest ? latest.materials : project.materials,
+    };
+  });
 }
 
 function parseSortableTime(value) {
@@ -845,6 +967,42 @@ function patchCommentsPanel(panel, targetType, targetRecordId) {
   }
 }
 
+function truncateInlineText(value, maxLength = 82) {
+  const text = extractTextContent(value).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function buildProgressHistoryTrigger(project, compact = false) {
+  const records = getProgressRecordsForTarget(project.id);
+  if (!records.length) return "";
+  const latest = records[0] || null;
+  const latestSummary = latest
+    ? truncateInlineText(latest.currentUpdate, compact ? 64 : 88)
+      || truncateInlineText(latest.nextStep, compact ? 64 : 88)
+      || truncateInlineText(latest.materials, compact ? 64 : 88)
+    : "";
+  const countLabel = records.length === 1 ? "1 update" : `${records.length} updates`;
+  return `
+    <button
+      class="progress-summary${compact ? " compact" : ""}"
+      type="button"
+      data-progress-history-id="${escapeHtml(project.id)}"
+    >
+      <div class="progress-summary-head">
+        <span class="progress-summary-label">Updates</span>
+        <span class="progress-summary-count">${escapeHtml(countLabel)}</span>
+      </div>
+      <div class="progress-summary-meta">
+        <span>${latest ? `${latest.progress}% progress` : "No entries yet"}</span>
+        <span>${latest ? escapeHtml(formatProgressTime(latest.createdAt) || "Just now") : "Open timeline"}</span>
+      </div>
+      <div class="progress-summary-copy">${escapeHtml(latestSummary || "Open the timeline to review the full update history.")}</div>
+    </button>
+  `;
+}
+
 function buildProjectCardContent(project) {
   const statusMeta = getProjectStatusMeta(project.status);
   const expanded = state.expandedProjects.has(project.id);
@@ -880,7 +1038,25 @@ function buildProjectCardContent(project) {
           <div class="detail-text">${formatRichText(child.plan)}</div>
         </div>
       </div>
-      ${child.resultLink ? `<div class="child-footer"><a class="result-link small" href="${escapeHtml(child.resultLink)}" target="_blank" rel="noreferrer">成果展示<span aria-hidden="true">↗</span></a></div>` : ""}
+      ${buildProgressHistoryTrigger(child, true)}
+      <div class="child-footer">
+        ${getProgressRecordsForTarget(child.id).length ? `
+        <button
+          class="project-history-btn small"
+          type="button"
+          data-progress-history-id="${escapeHtml(child.id)}"
+        >
+          View Timeline
+        </button>` : ""}
+        <button
+          class="project-update-btn small"
+          type="button"
+          data-progress-update-id="${escapeHtml(child.id)}"
+        >
+          Update Progress
+        </button>
+        ${child.resultLink ? `<a class="result-link small" href="${escapeHtml(child.resultLink)}" target="_blank" rel="noreferrer">成果展示<span aria-hidden="true">↗</span></a>` : ""}
+      </div>
     </article>
   `).join("");
 
@@ -927,11 +1103,27 @@ function buildProjectCardContent(project) {
         <div class="detail-text">${formatRichText(project.plan)}</div>
       </section>
     </div>
+    ${buildProgressHistoryTrigger(project)}
     ${expandButton ? `<div class="card-actions">${expandButton}</div>` : ""}
     <div class="children-panel${expanded ? " active" : ""}">
       <div class="children-grid">${childMarkup}</div>
     </div>
     <div class="project-card-footer">
+      ${getProgressRecordsForTarget(project.id).length ? `
+      <button
+        class="project-history-btn"
+        type="button"
+        data-progress-history-id="${escapeHtml(project.id)}"
+      >
+        View Timeline
+      </button>` : ""}
+      <button
+        class="project-update-btn"
+        type="button"
+        data-progress-update-id="${escapeHtml(project.id)}"
+      >
+        Update Progress
+      </button>
       <button
         class="comment-toggle-btn${commentsOpen ? " active" : ""}"
         type="button"
@@ -977,8 +1169,20 @@ function renderProjects() {
     project.status,
     project.problem,
     project.plan,
+    project.currentUpdate,
+    project.nextStep,
+    project.materials,
     project.owner,
-    ...project.children.flatMap((child) => [child.title, child.status, child.problem, child.plan, child.owner])
+    ...project.children.flatMap((child) => [
+      child.title,
+      child.status,
+      child.problem,
+      child.plan,
+      child.currentUpdate,
+      child.nextStep,
+      child.materials,
+      child.owner
+    ])
   ]));
 
   if (!filteredProjects.length) {
@@ -1377,6 +1581,83 @@ async function submitComment(targetType, targetRecordId, form) {
   }
 }
 
+async function submitProjectUpdate(form) {
+  const recordId = String(elements.projectUpdateRecordId?.value || state.activeProjectUpdateId || "").trim();
+  const progress = Number(elements.projectUpdateProgress?.value);
+  const currentUpdate = String(elements.projectUpdateCurrent?.value || "").trim();
+  const nextStep = String(elements.projectUpdateNext?.value || "").trim();
+  const materials = String(elements.projectUpdateMaterials?.value || "").trim();
+
+  if (!recordId) {
+    if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "Missing target task.";
+    return;
+  }
+  if (!state.authUser) {
+    if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "Authorize Feishu first.";
+    renderProjectUpdateModal();
+    return;
+  }
+  if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+    if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "Progress must be between 0 and 100.";
+    return;
+  }
+  if (!currentUpdate || !nextStep || !materials) {
+    if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "All fields are required.";
+    return;
+  }
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton) submitButton.disabled = true;
+  if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "Saving...";
+
+  try {
+    const response = await fetch(`${API_BASE}/progress`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: recordId,
+        progress: Math.round(progress),
+        current_update: currentUpdate,
+        next_step: nextStep,
+        materials,
+      })
+    });
+    const detail = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(detail.message || "Update failed");
+    }
+
+    const nextRecord = {
+      id: detail.progress?.id || `local-${recordId}-${Date.now()}`,
+      targetRecordId: recordId,
+      progress: Math.round(progress),
+      currentUpdate,
+      nextStep,
+      materials,
+      createdAt: detail.progress?.created_time || new Date().toISOString(),
+    };
+    state.latestProgressByTarget[recordId] = nextRecord;
+    state.progressRecordsByTarget[recordId] = [
+      nextRecord,
+      ...(state.progressRecordsByTarget[recordId] || []).filter((record) => record.id !== nextRecord.id)
+    ].sort(compareProgressRecordsDesc);
+    const targetProject = findProjectRecordById(recordId);
+    if (targetProject) {
+      targetProject.progress = Math.round(progress);
+      targetProject.currentUpdate = currentUpdate;
+      targetProject.nextStep = nextStep;
+      targetProject.materials = materials;
+    }
+    renderProjects();
+    renderProgressTimelineModal();
+    closeProjectUpdateModal();
+  } catch (error) {
+    if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = error.message || "Update failed";
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
 function renderStats() {
   elements.projectCount.textContent = String(state.projectsTree.length).padStart(2, "0");
   elements.childCount.textContent = String(state.childCount).padStart(2, "0");
@@ -1389,6 +1670,7 @@ function renderAll() {
   renderProjects();
   renderIdeas();
   renderStats();
+  renderProgressTimelineModal();
 }
 
 function signatureOf(value) {
@@ -1439,18 +1721,144 @@ function closeIdeaModal() {
   document.body.classList.remove("modal-open");
 }
 
+function renderProjectUpdateModal() {
+  if (!elements.projectUpdateModal) return;
+  const targetProject = findProjectRecordById(state.activeProjectUpdateId);
+  const authed = Boolean(state.authUser?.open_id || state.authUser?.union_id || state.authUser?.name);
+  if (elements.projectUpdateTitle) {
+    elements.projectUpdateTitle.textContent = targetProject ? targetProject.title : "Progress Update";
+  }
+  if (elements.projectUpdateSubtitle) {
+    elements.projectUpdateSubtitle.textContent = targetProject
+      ? "Update progress, describe what changed, and define the next move."
+      : "Choose a project task to update.";
+  }
+  if (elements.projectUpdateRecordId) {
+    elements.projectUpdateRecordId.value = targetProject?.id || "";
+  }
+  if (elements.projectUpdateAuthGate) {
+    elements.projectUpdateAuthGate.hidden = authed;
+  }
+  if (elements.projectUpdateForm) {
+    elements.projectUpdateForm.hidden = !authed;
+  }
+}
+
+function renderProgressTimelineModal() {
+  if (!elements.progressTimelineModal) return;
+  const targetProject = findProjectRecordById(state.activeProgressTimelineId);
+  const records = targetProject ? getProgressRecordsForTarget(targetProject.id) : [];
+  if (elements.progressTimelineTitle) {
+    elements.progressTimelineTitle.textContent = targetProject ? targetProject.title : "Progress Timeline";
+  }
+  if (elements.progressTimelineMeta) {
+    if (!targetProject) {
+      elements.progressTimelineMeta.textContent = "";
+    } else if (!records.length) {
+      elements.progressTimelineMeta.textContent = "No progress history yet.";
+    } else {
+      const latest = records[0];
+      elements.progressTimelineMeta.textContent = `${records.length} update${records.length > 1 ? "s" : ""} · latest ${formatProgressTime(latest.createdAt) || "just now"}`;
+    }
+  }
+  if (elements.progressTimelineList) {
+    elements.progressTimelineList.innerHTML = records.length
+      ? records.map((record) => `
+          <article class="timeline-entry">
+            <div class="timeline-entry-topline">
+              <div class="timeline-entry-progress">${escapeHtml(String(record.progress))}%</div>
+              <time class="timeline-entry-time">${escapeHtml(formatProgressTime(record.createdAt) || "Just now")}</time>
+            </div>
+            <div class="timeline-entry-grid">
+              <section class="timeline-entry-block">
+                <div class="timeline-entry-label">Current Progress</div>
+                <div class="timeline-entry-text">${formatRichText(record.currentUpdate)}</div>
+              </section>
+              <section class="timeline-entry-block">
+                <div class="timeline-entry-label">Next Step</div>
+                <div class="timeline-entry-text">${formatRichText(record.nextStep)}</div>
+              </section>
+            </div>
+            <section class="timeline-entry-block timeline-entry-block-materials">
+              <div class="timeline-entry-label">Materials</div>
+              <div class="timeline-entry-text">${formatRichText(record.materials)}</div>
+            </section>
+          </article>
+        `).join("")
+      : '<div class="timeline-empty">No updates yet. Use <strong>Update Progress</strong> to create the first entry.</div>';
+  }
+  if (elements.progressTimelineUpdateBtn) {
+    elements.progressTimelineUpdateBtn.hidden = !targetProject;
+    if (targetProject) elements.progressTimelineUpdateBtn.dataset.progressTimelineUpdateId = targetProject.id;
+  }
+}
+
+function openProjectUpdateModal(projectId) {
+  const targetProject = findProjectRecordById(projectId);
+  if (!targetProject || !elements.projectUpdateModal) return;
+  state.activeProjectUpdateId = targetProject.id;
+  if (elements.projectUpdateRecordId) elements.projectUpdateRecordId.value = targetProject.id;
+  if (elements.projectUpdateProgress) elements.projectUpdateProgress.value = String(targetProject.progress || 0);
+  syncProjectUpdateProgressValue(targetProject.progress || 0);
+  if (elements.projectUpdateCurrent) elements.projectUpdateCurrent.value = extractTextContent(targetProject.currentUpdate).trim();
+  if (elements.projectUpdateNext) elements.projectUpdateNext.value = extractTextContent(targetProject.nextStep).trim();
+  if (elements.projectUpdateMaterials) elements.projectUpdateMaterials.value = extractTextContent(targetProject.materials).trim();
+  if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "Ready";
+  renderProjectUpdateModal();
+  elements.projectUpdateModal.classList.add("active");
+  elements.projectUpdateModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closeProjectUpdateModal() {
+  if (!elements.projectUpdateModal) return;
+  elements.projectUpdateModal.classList.remove("active");
+  elements.projectUpdateModal.setAttribute("aria-hidden", "true");
+  state.activeProjectUpdateId = "";
+  if (elements.projectUpdateStatus) elements.projectUpdateStatus.textContent = "Ready";
+  document.body.classList.remove("modal-open");
+}
+
+function openProgressTimelineModal(projectId) {
+  const targetProject = findProjectRecordById(projectId);
+  if (!targetProject || !elements.progressTimelineModal) return;
+  state.activeProgressTimelineId = targetProject.id;
+  renderProgressTimelineModal();
+  elements.progressTimelineModal.classList.add("active");
+  elements.progressTimelineModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closeProgressTimelineModal() {
+  if (!elements.progressTimelineModal) return;
+  elements.progressTimelineModal.classList.remove("active");
+  elements.progressTimelineModal.setAttribute("aria-hidden", "true");
+  state.activeProgressTimelineId = "";
+  document.body.classList.remove("modal-open");
+}
+
+function syncProjectUpdateProgressValue(value) {
+  if (!elements.projectUpdateProgressValue) return;
+  const numeric = Number(value);
+  elements.projectUpdateProgressValue.textContent = Number.isFinite(numeric) ? String(Math.round(numeric)) : "0";
+}
+
 async function loadData() {
   try {
-    const [projectsRes, ideasRes] = await Promise.all([
+    const [projectsRes, ideasRes, progressRes] = await Promise.all([
       fetch(`${API_BASE}/projects`, { cache: "no-store" }),
-      fetch(`${API_BASE}/ideas`, { cache: "no-store" })
+      fetch(`${API_BASE}/ideas`, { cache: "no-store" }),
+      fetch(`${API_BASE}/progress`, { cache: "no-store" })
     ]);
 
     const projectsData = projectsRes.ok ? await projectsRes.json() : DEFAULT_PROJECTS;
     const ideasData = ideasRes.ok ? await ideasRes.json() : DEFAULT_IDEAS;
+    const progressData = progressRes.ok ? await progressRes.json() : { records: [] };
 
     const projectTree = buildProjectTree(projectsData.records || []);
-    const nextProjects = projectTree.roots;
+    const nextProgressRecordsByTarget = buildProgressHistoryMap(progressData.records || []);
+    const nextLatestProgressByTarget = buildLatestProgressMap(nextProgressRecordsByTarget);
+    const nextProjects = applyLatestProgressToProjects(projectTree.roots, nextLatestProgressByTarget);
     const nextChildCount = projectTree.childCount;
     const nextIdeas = (ideasData.records || [])
       .map((record, index) => ({ ...record, sourceOrder: index }))
@@ -1460,26 +1868,35 @@ async function loadData() {
       .filter((idea) => idea.title && idea.title !== "未命名 Idea");
 
     const nextProjectSignature = signatureOf({ roots: nextProjects, childCount: nextChildCount });
+    const nextProgressSignature = signatureOf(nextProgressRecordsByTarget);
     const nextIdeaSignature = signatureOf(nextIdeas);
     const projectsChanged = nextProjectSignature !== state.projectSignature;
+    const progressChanged = nextProgressSignature !== state.progressSignature;
     const ideasChanged = nextIdeaSignature !== state.ideaSignature;
 
     state.projectsTree = nextProjects;
     state.childCount = nextChildCount;
     state.ideas = nextIdeas;
+    state.latestProgressByTarget = nextLatestProgressByTarget;
+    state.progressRecordsByTarget = nextProgressRecordsByTarget;
     state.ideaCategoryOptions = collectIdeaCategoryOptions(nextIdeas);
 
     if (projectsChanged) {
       state.projectSignature = nextProjectSignature;
       renderProjects();
     }
+    if (progressChanged) {
+      state.progressSignature = nextProgressSignature;
+    }
     if (ideasChanged) {
       state.ideaSignature = nextIdeaSignature;
       renderIdeas();
     }
-    if (projectsChanged || ideasChanged) {
+    if (projectsChanged || ideasChanged || progressChanged) {
       renderStats();
     }
+    renderProjectUpdateModal();
+    renderProgressTimelineModal();
     renderIdeaCategoryOptions();
 
     updateMeta(projectsData.updated_at || ideasData.updated_at);
@@ -1487,14 +1904,19 @@ async function loadData() {
     const projectTree = buildProjectTree(DEFAULT_PROJECTS.records);
     state.projectsTree = projectTree.roots;
     state.childCount = projectTree.childCount;
+    state.latestProgressByTarget = {};
+    state.progressRecordsByTarget = {};
     state.ideas = DEFAULT_IDEAS.records
       .map((record, index) => ({ ...record, sourceOrder: index }))
       .map(normalizeIdeaRecord)
       .sort(compareIdeasByCreatedAtDesc);
     state.ideaCategoryOptions = collectIdeaCategoryOptions(state.ideas);
     state.projectSignature = signatureOf({ roots: state.projectsTree, childCount: state.childCount });
+    state.progressSignature = signatureOf(state.progressRecordsByTarget);
     state.ideaSignature = signatureOf(state.ideas);
     renderAll();
+    renderProjectUpdateModal();
+    renderProgressTimelineModal();
     renderIdeaCategoryOptions();
     updateMeta(DEFAULT_PROJECTS.updated_at);
   }
@@ -1517,6 +1939,7 @@ async function loadConfig() {
   }
   state.submitMode = normalizeSubmitMode(state.submitMode);
   renderSubmitMode();
+  renderProjectUpdateModal();
   updateTitleJump();
   renderProjects();
   elements.ideasList.innerHTML = "";
@@ -1536,6 +1959,7 @@ async function loadMe() {
       elements.loginBtn.classList.remove("visible");
       state.submitMode = normalizeSubmitMode(state.submitMode);
       renderSubmitMode();
+      renderProjectUpdateModal();
       return;
     }
     state.authUser = data?.user || null;
@@ -1544,6 +1968,7 @@ async function loadMe() {
     elements.loginBtn.classList.remove("visible");
     state.submitMode = normalizeSubmitMode("auth");
     renderSubmitMode();
+    renderProjectUpdateModal();
   } catch (error) {
     state.authUser = null;
     if (state.guestMode) {
@@ -1552,6 +1977,7 @@ async function loadMe() {
       elements.loginBtn.classList.remove("visible");
       state.submitMode = normalizeSubmitMode(state.submitMode);
       renderSubmitMode();
+      renderProjectUpdateModal();
       return;
     }
     elements.authBadge.textContent = "Login Required";
@@ -1559,6 +1985,7 @@ async function loadMe() {
     elements.loginBtn.classList.add("visible");
     state.submitMode = normalizeSubmitMode("auth");
     renderSubmitMode();
+    renderProjectUpdateModal();
   }
 }
 
@@ -1599,6 +2026,18 @@ function bindEvents() {
   });
 
   elements.projectsList?.addEventListener("click", (event) => {
+    const historyButton = event.target.closest("[data-progress-history-id]");
+    if (historyButton) {
+      openProgressTimelineModal(historyButton.dataset.progressHistoryId);
+      return;
+    }
+
+    const updateButton = event.target.closest("[data-progress-update-id]");
+    if (updateButton) {
+      openProjectUpdateModal(updateButton.dataset.progressUpdateId);
+      return;
+    }
+
     const commentLikeButton = event.target.closest("[data-comment-like-id]");
     if (commentLikeButton) {
       const commentId = commentLikeButton.dataset.commentLikeId;
@@ -1656,6 +2095,25 @@ function bindEvents() {
     const [targetType, targetRecordId] = String(targetKey || "").split(":");
     if (!targetType || !targetRecordId) return;
     await submitComment(targetType, targetRecordId, form);
+  });
+
+  elements.projectUpdateForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitProjectUpdate(event.currentTarget);
+  });
+  elements.projectUpdateProgress?.addEventListener("input", (event) => {
+    syncProjectUpdateProgressValue(event.target.value);
+  });
+
+  elements.closeProjectUpdateModalBtn?.addEventListener("click", closeProjectUpdateModal);
+  elements.closeProjectUpdateModalBg?.addEventListener("click", closeProjectUpdateModal);
+  elements.closeProgressTimelineModalBtn?.addEventListener("click", closeProgressTimelineModal);
+  elements.closeProgressTimelineModalBg?.addEventListener("click", closeProgressTimelineModal);
+  elements.progressTimelineUpdateBtn?.addEventListener("click", (event) => {
+    const projectId = event.currentTarget.dataset.progressTimelineUpdateId;
+    if (!projectId) return;
+    closeProgressTimelineModal();
+    openProjectUpdateModal(projectId);
   });
 
   elements.ideasList?.addEventListener("click", async (event) => {
@@ -1749,6 +2207,14 @@ function bindEvents() {
   });
 
   elements.modalLoginBtn?.addEventListener("click", async () => {
+    const response = await fetch(`${API_BASE}/login`, { cache: "no-store" });
+    const data = await response.json();
+    if (data?.auth_url) {
+      window.location.href = data.auth_url;
+    }
+  });
+
+  elements.projectUpdateLoginBtn?.addEventListener("click", async () => {
     const response = await fetch(`${API_BASE}/login`, { cache: "no-store" });
     const data = await response.json();
     if (data?.auth_url) {

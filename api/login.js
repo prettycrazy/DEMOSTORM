@@ -6,7 +6,7 @@ module.exports = async (req, res) => {
     json(res, 500, { message: 'Missing FEISHU_REDIRECT_URI' })
     return
   }
-  const scope = process.env.FEISHU_OAUTH_SCOPE || 'auth:user.id:read bitable:app base:record:create base:record:read'
+  const scope = process.env.FEISHU_OAUTH_SCOPE || 'auth:user.id:read bitable:app base:record:create base:record:read base:record:update'
   const params = new URLSearchParams({
     app_id: process.env.FEISHU_APP_ID || '',
     redirect_uri: redirectUri,

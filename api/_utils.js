@@ -190,6 +190,23 @@ async function getUserSession(req) {
   return { session: refreshed, refreshed }
 }
 
+async function updateBitableRecordFields(tableId, recordId, fields, token) {
+  if (!tableId) throw new Error('Missing table id')
+  if (!recordId) throw new Error('Missing record id')
+  const appToken = process.env.FEISHU_BITABLE_APP_TOKEN
+  const url = `${API_BASE}/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`
+  const data = await httpRequest(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ fields }),
+  })
+  if (data.code !== 0) throw new Error(data.msg || `Feishu API Error (${data.code})`)
+  return data.data?.record || {}
+}
+
 module.exports = {
   API_BASE,
   json,
@@ -199,4 +216,5 @@ module.exports = {
   buildSetCookie,
   getUserSession,
   signSession,
+  updateBitableRecordFields,
 }

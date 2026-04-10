@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import socket
 import time
 import urllib.request
 import urllib.error
@@ -70,12 +71,20 @@ def http_request(url, method="GET", headers=None, body=None):
     if certifi is not None:
         context = ssl.create_default_context(cafile=certifi.where())
 
-    try:
-        with urllib.request.urlopen(req, timeout=30, context=context) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", errors="ignore")
-        raise FeishuRequestError(e.code, detail) from e
+    last_error = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=context) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="ignore")
+            raise FeishuRequestError(e.code, detail) from e
+        except (urllib.error.URLError, ConnectionResetError, socket.timeout, OSError) as e:
+            last_error = e
+            if attempt == 2:
+                break
+            time.sleep(0.35 * (attempt + 1))
+    raise last_error
 
 
 def get_env(key):
@@ -542,7 +551,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/login"):
             redirect_uri = os.getenv("FEISHU_REDIRECT_URI", "http://localhost:8004/api/oauth/callback")
-            scope = os.getenv("FEISHU_OAUTH_SCOPE", "auth:user.id:read bitable:app base:record:create base:record:read")
+            scope = os.getenv("FEISHU_OAUTH_SCOPE", "auth:user.id:read bitable:app base:record:create base:record:read base:record:update")
             state = secrets.token_hex(8)
             auth_url = build_auth_url(redirect_uri, scope, state)
             json_response(self, 200, {"auth_url": auth_url})
@@ -628,9 +637,138 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                 json_response(self, status, {"message": str(e)})
             return
 
+        if self.path.startswith("/api/progress"):
+            try:
+                table_id = os.getenv("FEISHU_PROGRESS_TABLE_ID", "").strip()
+                if not table_id:
+                    json_response(self, 200, {
+                        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                        "records": []
+                    })
+                    return
+                records = fetch_records(table_id, text_field_as_array=True)
+                json_response(self, 200, {
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "records": records
+                })
+            except Exception as e:
+                print("Error fetching progress:", e)
+                status = e.status if isinstance(e, FeishuRequestError) else 500
+                json_response(self, status, {"message": str(e)})
+            return
+
         super().do_GET()
 
     def do_POST(self):
+        if self.path.startswith("/api/progress"):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                user_auth = self.current_user()
+                payload = json.loads(body.decode("utf-8"))
+                if not user_auth:
+                    json_response(self, 401, {"message": "请先授权飞书账号"})
+                    return
+
+                table_id = os.getenv("FEISHU_PROGRESS_TABLE_ID", "").strip()
+                if not table_id:
+                    json_response(self, 500, {"message": "Missing FEISHU_PROGRESS_TABLE_ID"})
+                    return
+
+                record_id = str(payload.get("id", "")).strip()
+                current_update = str(payload.get("current_update", "")).strip()
+                next_step = str(payload.get("next_step", "")).strip()
+                materials = str(payload.get("materials", "")).strip()
+                try:
+                    progress = int(round(float(payload.get("progress"))))
+                except (TypeError, ValueError):
+                    progress = None
+
+                if not record_id:
+                    json_response(self, 400, {"message": "缺少 project id"})
+                    return
+                if progress is None or progress < 0 or progress > 100:
+                    json_response(self, 400, {"message": "进度必须是 0 到 100 之间的数字"})
+                    return
+                if not current_update or not next_step or not materials:
+                    json_response(self, 400, {"message": "请完整填写当前进展、下一步计划和相关材料"})
+                    return
+
+                progress_record = create_record(table_id, {
+                    "目标记录ID": record_id,
+                    "进度": str(progress),
+                    "当前进展": current_update,
+                    "下一步计划": next_step,
+                    "相关材料": materials,
+                }, get_tenant_access_token())
+                projects_table_id = os.getenv("FEISHU_PROJECTS_TABLE_ID", "").strip()
+                if projects_table_id:
+                    update_record_fields(projects_table_id, record_id, {
+                        "进度": progress,
+                    }, get_tenant_access_token())
+                progress_record["created_time"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+                json_response(self, 200, {"message": "ok", "progress": progress_record})
+            except Exception as e:
+                print("Error creating progress record:", e)
+                status = e.status if isinstance(e, FeishuRequestError) else 500
+                json_response(self, status, {"message": str(e)})
+            return
+
+        if self.path.startswith("/api/projects"):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                user_auth = self.current_user()
+                payload = json.loads(body.decode("utf-8"))
+
+                if payload.get("action") != "update_progress":
+                    json_response(self, 400, {"message": "Unsupported project action"})
+                    return
+
+                if not user_auth:
+                    json_response(self, 401, {"message": "请先授权飞书账号"})
+                    return
+
+                record_id = str(payload.get("id", "")).strip()
+                current_update = str(payload.get("current_update", "")).strip()
+                next_step = str(payload.get("next_step", "")).strip()
+                materials = str(payload.get("materials", "")).strip()
+                try:
+                    progress = int(round(float(payload.get("progress"))))
+                except (TypeError, ValueError):
+                    progress = None
+
+                if not record_id:
+                    json_response(self, 400, {"message": "缺少 project id"})
+                    return
+                if progress is None or progress < 0 or progress > 100:
+                    json_response(self, 400, {"message": "进度必须是 0 到 100 之间的数字"})
+                    return
+                if not current_update or not next_step or not materials:
+                    json_response(self, 400, {"message": "请完整填写当前进展、下一步计划和相关材料"})
+                    return
+
+                token_value = get_user_access_token(user_auth)
+                if isinstance(token_value, tuple):
+                    token, refreshed = token_value
+                    user_auth.update(refreshed)
+                    self.save_user_auth(user_auth)
+                else:
+                    token = token_value
+
+                update_record_fields(get_env("FEISHU_PROJECTS_TABLE_ID"), record_id, {
+                    "进度": progress,
+                    "当前进展": current_update,
+                    "下一步计划": next_step,
+                    "相关材料": materials,
+                }, token)
+                json_response(self, 200, {"message": "ok"})
+            except Exception as e:
+                print("Error updating project progress:", e)
+                status = e.status if isinstance(e, FeishuRequestError) else 500
+                json_response(self, status, {"message": str(e)})
+            return
+
         if self.path.startswith("/api/ideas"):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length) if length else b"{}"

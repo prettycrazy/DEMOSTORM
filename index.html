@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=20260409b" />
+    <link rel="stylesheet" href="styles.css?v=20260410q" />
 </head>
 <body>
   <div class="bg-orb bg-orb-a" aria-hidden="true"></div>
@@ -136,11 +136,96 @@
     </div>
   </div>
 
+  <div class="modal-shell" id="projectUpdateModal" aria-hidden="true">
+    <div class="modal-backdrop" id="closeProjectUpdateModalBg"></div>
+    <div class="modal-card modal-card-compact">
+      <div class="modal-head project-update-head">
+        <div class="project-update-heading">
+          <h3 id="projectUpdateTitle">Progress Update</h3>
+          <p class="modal-subtitle" id="projectUpdateSubtitle">Update progress, describe what changed, and define the next move.</p>
+        </div>
+        <button class="ghost modal-close" id="closeProjectUpdateModalBtn" type="button" aria-label="Close">
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+
+      <div class="project-update-auth-gate" id="projectUpdateAuthGate" hidden>
+        <div class="submit-mode-panel auth-only-panel">
+          <div class="submit-mode-row">
+            <div class="submit-mode-label">Authorization Required</div>
+          </div>
+          <div class="submit-mode-help auth-only-help">
+            <div class="submit-mode-meta">Only an authorized Feishu account can update project progress.</div>
+            <button class="ghost modal-auth-btn" id="projectUpdateLoginBtn" type="button">Authorize Feishu Account</button>
+          </div>
+        </div>
+      </div>
+
+      <form class="idea-form project-update-form" id="projectUpdateForm" hidden>
+        <input type="hidden" id="projectUpdateRecordId" value="" />
+        <div class="project-update-topline">
+          <div class="form-row project-progress-row">
+            <div class="project-progress-head">
+              <label class="project-field-label" for="projectUpdateProgress">Progress</label>
+            </div>
+            <div class="project-progress-track">
+              <input type="range" id="projectUpdateProgress" min="0" max="100" step="1" value="0" required />
+              <div class="project-progress-value"><span id="projectUpdateProgressValue">0</span>%</div>
+            </div>
+          </div>
+        </div>
+        <div class="project-update-stack">
+          <section class="project-update-section">
+            <div class="project-update-section-head">
+              <label class="project-field-label" for="projectUpdateCurrent">Current Progress</label>
+            </div>
+            <textarea id="projectUpdateCurrent" placeholder="Summarize completed work, decisions, or outcomes." required></textarea>
+          </section>
+          <section class="project-update-section">
+            <div class="project-update-section-head">
+              <label class="project-field-label" for="projectUpdateNext">Next Step</label>
+            </div>
+            <textarea id="projectUpdateNext" placeholder="Describe the immediate next move and owner expectations." required></textarea>
+          </section>
+          <section class="project-update-section">
+            <div class="project-update-section-head">
+              <label class="project-field-label" for="projectUpdateMaterials">Materials</label>
+            </div>
+            <textarea id="projectUpdateMaterials" placeholder="Paste docs, demos, screenshots, tickets, or reference links." required></textarea>
+          </section>
+        </div>
+        <div class="form-actions">
+          <button class="primary" type="submit">Save Update</button>
+          <span class="form-hint" id="projectUpdateStatus">Ready</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-shell" id="progressTimelineModal" aria-hidden="true">
+    <div class="modal-backdrop" id="closeProgressTimelineModalBg"></div>
+    <div class="modal-card modal-card-timeline">
+      <div class="modal-head progress-timeline-head">
+        <div class="progress-timeline-heading">
+          <h3 id="progressTimelineTitle">Progress Timeline</h3>
+          <p class="progress-timeline-meta" id="progressTimelineMeta"></p>
+        </div>
+        <button class="ghost modal-close" id="closeProgressTimelineModalBtn" type="button" aria-label="Close">
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+      <div class="progress-timeline-body" id="progressTimelineList"></div>
+      <div class="progress-timeline-footer">
+        <button class="project-update-btn" id="progressTimelineUpdateBtn" type="button">Update Progress</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="footer">
     <div>Feishu Bitable live surface</div>
     <div class="footer-right">Projects and Ideas share one motion system</div>
   </footer>
 
-    <script src="app.js?v=20260409b"></script>
+    <script src="app.js?v=20260410c"></script>
   </body>
 </html>

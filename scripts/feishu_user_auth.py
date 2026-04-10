@@ -154,7 +154,7 @@ def main():
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--redirect-uri", required=True)
     parser.add_argument("--print-auth-url", action="store_true")
-    parser.add_argument("--scope", default="auth:user.id:read bitable:app base:record:create base:record:read")
+    parser.add_argument("--scope", default="auth:user.id:read bitable:app base:record:create base:record:read base:record:update")
     parser.add_argument("--state", default="workboard")
     parser.add_argument("--exchange-redirect-url")
     parser.add_argument("--code")
