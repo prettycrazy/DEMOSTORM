@@ -697,6 +697,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                 progress_record = create_record(table_id, {
                     "目标记录ID": record_id,
                     "进度": str(progress),
+                    "创建时间": int(time.time() * 1000),
                     "当前进展": current_update,
                     "下一步计划": next_step,
                     "相关材料": materials,

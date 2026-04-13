@@ -48,6 +48,7 @@ const FIELD_ALIASES = {
   projectCurrentUpdate: ["当前进展", "当前进展内容描述", "进展更新", "Latest Update", "Current Update"],
   projectNextStep: ["下一步计划", "Next Step", "Next Action"],
   projectMaterials: ["相关材料", "Materials", "Reference", "参考材料"],
+  progressCreatedAt: ["创建时间", "Created Time", "created_at"],
   ideaTag: ["标签", "Tag", "标签名", "分类", "类型"],
   ideaStatus: ["状态", "Status", "阶段", "Stage"],
   ideaCreatedAt: ["创建时间", "Created Time", "created_at"],
@@ -66,12 +67,14 @@ const FIELD_ALIASES = {
 const EMPTY_MARKERS = new Set(["", null, undefined]);
 const TAB_QUERY_PARAM = "tab";
 const IDEA_TWO_COLUMN_BREAKPOINT = 1100;
+const RECENT_UPDATES_INITIAL_LIMIT = 5;
 
 const state = {
   guestMode: false,
   authUser: null,
   submitMode: "auth",
   activePool: "ideas",
+  recentUpdatesExpanded: false,
   searchQuery: "",
   ideaCategoryOptions: [],
   activeProjectUpdateId: "",
@@ -102,6 +105,9 @@ const elements = {
   ideasList: document.getElementById("ideasList"),
   projectsView: document.getElementById("projectsView"),
   ideasView: document.getElementById("ideasView"),
+  recentUpdatesWrap: document.getElementById("recentUpdatesWrap"),
+  recentUpdatesList: document.getElementById("recentUpdatesList"),
+  recentUpdatesToggle: document.getElementById("recentUpdatesToggle"),
   projectCount: document.getElementById("projectCount"),
   childCount: document.getElementById("childCount"),
   ideaCount: document.getElementById("ideaCount"),
@@ -402,6 +408,44 @@ function renderProjectStatusOverview() {
   }).join("");
 }
 
+function renderRecentProjectUpdates() {
+  if (!elements.recentUpdatesWrap || !elements.recentUpdatesList || !elements.recentUpdatesToggle) return;
+  const updates = buildRecentProjectUpdates();
+  if (!updates.length) {
+    elements.recentUpdatesWrap.hidden = true;
+    elements.recentUpdatesList.innerHTML = "";
+    elements.recentUpdatesToggle.hidden = true;
+    return;
+  }
+
+  const visibleUpdates = state.recentUpdatesExpanded
+    ? updates
+    : updates.slice(0, RECENT_UPDATES_INITIAL_LIMIT);
+
+  elements.recentUpdatesWrap.hidden = state.activePool !== "projects";
+  elements.recentUpdatesList.innerHTML = visibleUpdates.map((update) => `
+    <button class="recent-update-item" type="button" data-progress-history-id="${escapeHtml(update.targetRecordId)}">
+      <div class="recent-update-meta">
+        <div class="recent-update-taskline">
+          <span class="recent-update-task">${escapeHtml(update.taskTitle)}</span>
+          ${update.parentTitle ? `<span class="recent-update-parent">in ${escapeHtml(update.parentTitle)}</span>` : ""}
+        </div>
+        <div class="recent-update-side">
+          <span class="recent-update-progress">${escapeHtml(String(update.progress))}%</span>
+          <time class="recent-update-time">${escapeHtml(formatProgressTime(update.createdAt) || "")}</time>
+        </div>
+      </div>
+      <div class="recent-update-copy">${escapeHtml(update.preview || "Updated progress record.")}</div>
+    </button>
+  `).join("");
+
+  const hasMore = updates.length > RECENT_UPDATES_INITIAL_LIMIT;
+  elements.recentUpdatesToggle.hidden = !hasMore;
+  elements.recentUpdatesToggle.textContent = state.recentUpdatesExpanded
+    ? "Show less"
+    : `View more (${updates.length - RECENT_UPDATES_INITIAL_LIMIT})`;
+}
+
 function extractLink(value) {
   if (!value) return "";
   if (typeof value === "string") {
@@ -651,6 +695,17 @@ function findProjectRecordById(projectId) {
   return null;
 }
 
+function findProjectContextById(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return null;
+  for (const project of state.projectsTree) {
+    if (project.id === targetId) return { record: project, parent: null };
+    const child = project.children.find((item) => item.id === targetId);
+    if (child) return { record: child, parent: project };
+  }
+  return null;
+}
+
 function compareProjectsByProgressDesc(a, b) {
   const progressDiff = (Number(b?.progress) || 0) - (Number(a?.progress) || 0);
   if (progressDiff !== 0) return progressDiff;
@@ -698,7 +753,7 @@ function normalizeProgressRecord(record) {
     currentUpdate: pickField(fields, FIELD_ALIASES.projectCurrentUpdate),
     nextStep: pickField(fields, FIELD_ALIASES.projectNextStep),
     materials: pickField(fields, FIELD_ALIASES.projectMaterials),
-    createdAt: record.created_time || record.createdAt || "",
+    createdAt: pickField(fields, FIELD_ALIASES.progressCreatedAt) || record.created_time || record.createdAt || "",
   };
 }
 
@@ -733,8 +788,51 @@ function getProgressRecordsForTarget(targetRecordId) {
   return state.progressRecordsByTarget[String(targetRecordId || "").trim()] || [];
 }
 
+function buildRecentProjectUpdates() {
+  return Object.values(state.progressRecordsByTarget)
+    .flatMap((records) => records || [])
+    .sort(compareProgressRecordsDesc)
+    .map((record) => {
+      const context = findProjectContextById(record.targetRecordId);
+      if (!context?.record) return null;
+      return {
+        ...record,
+        taskTitle: context.record.title,
+        parentTitle: context.parent?.title || "",
+        preview: truncateInlineText(record.currentUpdate, 140)
+          || truncateInlineText(record.nextStep, 140)
+          || truncateInlineText(record.materials, 140),
+      };
+    })
+    .filter(Boolean);
+}
+
 function formatProgressTime(value) {
-  return formatCommentTime(value);
+  const date = parseDateValue(value);
+  if (!date) return "";
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  if (diffMs >= 0 && diffMs < 5 * 60 * 1000) {
+    return "Just now";
+  }
+
+  const sameDay = now.getFullYear() === date.getFullYear()
+    && now.getMonth() === date.getMonth()
+    && now.getDate() === date.getDate();
+
+  if (sameDay) {
+    return date.toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  }
+
+  return date.toLocaleDateString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+  });
 }
 
 function applyLatestProgressToProjects(projects, latestByTarget) {
@@ -839,7 +937,18 @@ function normalizeComment(comment) {
 }
 
 function formatCommentTime(value) {
-  if (!value) return "";
+  const date = parseDateValue(value);
+  if (!date || Number.isNaN(date.valueOf())) return String(value);
+  return date.toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
   const raw = String(value).trim();
   let date = null;
   if (/^\d+$/.test(raw)) {
@@ -850,13 +959,8 @@ function formatCommentTime(value) {
   } else {
     date = new Date(raw);
   }
-  if (!date || Number.isNaN(date.valueOf())) return String(value);
-  return date.toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  if (!date || Number.isNaN(date.valueOf())) return null;
+  return date;
 }
 
 function getCommentsForTarget(targetType, targetRecordId) {
@@ -1035,7 +1139,7 @@ function buildProgressHistoryTrigger(project, compact = false) {
       </div>
       <div class="progress-summary-meta">
         <span>${latest ? `${latest.progress}% progress` : "No entries yet"}</span>
-        <span>${latest ? escapeHtml(formatProgressTime(latest.createdAt) || "Just now") : "Open timeline"}</span>
+        <span>${latest ? escapeHtml(formatProgressTime(latest.createdAt) || "") : "Open timeline"}</span>
       </div>
       <div class="progress-summary-copy">${escapeHtml(latestSummary || "Open the timeline to review the full update history.")}</div>
     </button>
@@ -1703,6 +1807,7 @@ function renderStats() {
   elements.ideaCount.textContent = String(state.ideas.length).padStart(2, "0");
   elements.momentum.textContent = calcSignalIndex(state.projectsTree.length, state.childCount, state.ideas.length);
   renderProjectStatusOverview();
+  renderRecentProjectUpdates();
 }
 
 function renderAll() {
@@ -1729,6 +1834,9 @@ function setActivePool(pool, options = {}) {
   elements.openIdeaModalBtn.classList.toggle("visible", normalizedPool === "ideas");
   if (elements.projectStatusOverviewWrap) {
     elements.projectStatusOverviewWrap.hidden = normalizedPool !== "projects";
+  }
+  if (elements.recentUpdatesWrap) {
+    elements.recentUpdatesWrap.hidden = normalizedPool !== "projects" || !buildRecentProjectUpdates().length;
   }
   elements.heroTitle.textContent = normalizedPool === "projects" ? "Grow Lab" : "Seed Hub";
   if (elements.heroKicker) {
@@ -1797,7 +1905,10 @@ function renderProgressTimelineModal() {
       elements.progressTimelineMeta.textContent = "No progress history yet.";
     } else {
       const latest = records[0];
-      elements.progressTimelineMeta.textContent = `${records.length} update${records.length > 1 ? "s" : ""} · latest ${formatProgressTime(latest.createdAt) || "just now"}`;
+      const latestTime = formatProgressTime(latest.createdAt);
+      elements.progressTimelineMeta.textContent = latestTime
+        ? `${records.length} update${records.length > 1 ? "s" : ""} · latest ${latestTime}`
+        : `${records.length} update${records.length > 1 ? "s" : ""}`;
     }
   }
   if (elements.progressTimelineList) {
@@ -1806,7 +1917,7 @@ function renderProgressTimelineModal() {
           <article class="timeline-entry">
             <div class="timeline-entry-topline">
               <div class="timeline-entry-progress">${escapeHtml(String(record.progress))}%</div>
-              <time class="timeline-entry-time">${escapeHtml(formatProgressTime(record.createdAt) || "Just now")}</time>
+              <time class="timeline-entry-time">${escapeHtml(formatProgressTime(record.createdAt) || "")}</time>
             </div>
             <div class="timeline-entry-grid">
               <section class="timeline-entry-block">
@@ -2045,6 +2156,17 @@ function bindEvents() {
     const button = event.target.closest("[data-project-status-jump]");
     if (!button) return;
     scrollToProjectStatusGroup(button.dataset.projectStatusJump);
+  });
+
+  elements.recentUpdatesToggle?.addEventListener("click", () => {
+    state.recentUpdatesExpanded = !state.recentUpdatesExpanded;
+    renderRecentProjectUpdates();
+  });
+
+  elements.recentUpdatesList?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-progress-history-id]");
+    if (!button) return;
+    openProgressTimelineModal(button.dataset.progressHistoryId);
   });
 
   window.addEventListener("popstate", () => {

@@ -268,6 +268,126 @@ button:disabled {
   margin-top: 1.1rem;
 }
 
+.recent-updates-wrap {
+  margin-bottom: 1.4rem;
+  padding: 1.1rem 1.2rem 1.2rem;
+  border-radius: 1.4rem;
+  border: 1px solid rgba(185, 193, 213, 0.38);
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 10px 24px rgba(116, 129, 164, 0.06);
+}
+
+.recent-updates-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.recent-updates-kicker {
+  color: rgba(67, 68, 77, 0.4);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.recent-updates-head h2 {
+  margin-top: 0.28rem;
+  margin-bottom: 0;
+  color: #202229;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+.recent-updates-toggle {
+  min-height: 2.3rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(172, 180, 200, 0.38);
+  background: rgba(255, 255, 255, 0.28);
+  color: rgba(77, 84, 96, 0.82);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.recent-updates-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 1rem;
+}
+
+.recent-update-item {
+  width: 100%;
+  padding: 0.88rem 0.95rem;
+  border-radius: 1.05rem;
+  border: 1px solid rgba(196, 202, 219, 0.34);
+  background: rgba(255, 255, 255, 0.42);
+  text-align: left;
+  transition: transform 220ms ease, border-color 220ms ease, background 220ms ease;
+}
+
+.recent-update-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(152, 162, 190, 0.44);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.recent-update-meta,
+.recent-update-taskline,
+.recent-update-side {
+  display: flex;
+  align-items: center;
+}
+
+.recent-update-meta {
+  justify-content: space-between;
+  gap: 0.9rem;
+}
+
+.recent-update-taskline,
+.recent-update-side {
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.recent-update-task {
+  color: #24262d;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.recent-update-parent,
+.recent-update-time {
+  color: rgba(91, 97, 111, 0.58);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recent-update-progress {
+  color: #596ef4;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recent-update-copy {
+  margin-top: 0.48rem;
+  color: rgba(71, 76, 88, 0.86);
+  font-size: 0.92rem;
+  line-height: 1.58;
+}
+
 .status-overview {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

@@ -93,10 +93,12 @@ module.exports = async (req, res) => {
       }
 
       const tenantToken = await getTenantAccessToken()
+      const createdAt = Date.now()
 
       const progressRecord = await createProgress({
         目标记录ID: recordId,
         进度: String(Math.round(progress)),
+        创建时间: createdAt,
         当前进展: currentUpdate,
         下一步计划: nextStep,
         相关材料: materials,
