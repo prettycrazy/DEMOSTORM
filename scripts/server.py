@@ -683,6 +683,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                     progress = int(round(float(payload.get("progress"))))
                 except (TypeError, ValueError):
                     progress = None
+                normalized_progress = round(progress / 100, 4) if progress is not None else None
 
                 if not record_id:
                     json_response(self, 400, {"message": "缺少 project id"})
@@ -705,7 +706,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                 projects_table_id = os.getenv("FEISHU_PROJECTS_TABLE_ID", "").strip()
                 if projects_table_id:
                     update_record_fields(projects_table_id, record_id, {
-                        "进度": progress,
+                        "进度": normalized_progress,
                     }, get_tenant_access_token())
                 progress_record["created_time"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
                 json_response(self, 200, {"message": "ok", "progress": progress_record})
@@ -738,6 +739,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                     progress = int(round(float(payload.get("progress"))))
                 except (TypeError, ValueError):
                     progress = None
+                normalized_progress = round(progress / 100, 4) if progress is not None else None
 
                 if not record_id:
                     json_response(self, 400, {"message": "缺少 project id"})
@@ -758,7 +760,7 @@ class WorkboardHandler(SimpleHTTPRequestHandler):
                     token = token_value
 
                 update_record_fields(get_env("FEISHU_PROJECTS_TABLE_ID"), record_id, {
-                    "进度": progress,
+                    "进度": normalized_progress,
                     "当前进展": current_update,
                     "下一步计划": next_step,
                     "相关材料": materials,

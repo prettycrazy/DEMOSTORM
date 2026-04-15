@@ -69,6 +69,7 @@ module.exports = async (req, res) => {
 
       const recordId = String(payload.id || '').trim()
       const progress = Number(payload.progress)
+      const normalizedProgress = Number((progress / 100).toFixed(4))
       const currentUpdate = String(payload.current_update || '').trim()
       const nextStep = String(payload.next_step || '').trim()
       const materials = String(payload.materials || '').trim()
@@ -91,7 +92,7 @@ module.exports = async (req, res) => {
       }
 
       const record = await updateProjectFields(recordId, {
-        [PROJECT_UPDATE_FIELDS.progress]: Math.round(progress),
+        [PROJECT_UPDATE_FIELDS.progress]: normalizedProgress,
         [PROJECT_UPDATE_FIELDS.currentUpdate]: currentUpdate,
         [PROJECT_UPDATE_FIELDS.nextStep]: nextStep,
         [PROJECT_UPDATE_FIELDS.materials]: materials,

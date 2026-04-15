@@ -71,6 +71,7 @@ module.exports = async (req, res) => {
 
       const recordId = String(payload.id || '').trim()
       const progress = Number(payload.progress)
+      const normalizedProgress = Number((progress / 100).toFixed(4))
       const currentUpdate = String(payload.current_update || '').trim()
       const nextStep = String(payload.next_step || '').trim()
       const materials = String(payload.materials || '').trim()
@@ -106,7 +107,7 @@ module.exports = async (req, res) => {
 
       if (PROJECTS_TABLE_ID) {
         await updateBitableRecordFields(PROJECTS_TABLE_ID, recordId, {
-          进度: Math.round(progress),
+          进度: normalizedProgress,
         }, tenantToken)
       }
 
