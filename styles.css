@@ -386,6 +386,8 @@ button:disabled {
   color: rgba(71, 76, 88, 0.86);
   font-size: 0.92rem;
   line-height: 1.58;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .status-overview {
@@ -1148,8 +1150,8 @@ button:disabled {
   max-width: 32ch;
   margin-top: 0.62rem;
   color: var(--text-dim);
-  line-height: 1.74;
-  font-size: 0.96rem;
+  line-height: 1.68;
+  font-size: 0.88rem;
 }
 
 .inline-link {
@@ -1251,14 +1253,16 @@ button:disabled {
 .progress-summary-meta {
   margin-top: 0.45rem;
   color: rgba(88, 94, 108, 0.7);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
 }
 
 .progress-summary-copy {
   margin-top: 0.58rem;
   color: rgba(69, 74, 86, 0.82);
-  font-size: 0.9rem;
-  line-height: 1.55;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .project-history-btn,
